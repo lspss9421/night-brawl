@@ -15,7 +15,8 @@ type Screen = 'title' | 'select' | 'fight' | 'online';
 let screen: Screen = 'title';
 let online: OnlineGame | null = null;
 let game: GameState | null = null;
-let showBoxes = true;
+// 開發版（npm run dev）預設顯示判定框、時間無限；發佈版像一般遊戲：不顯示判定框、回合 99 秒
+let showBoxes = import.meta.env.DEV;
 let p2Mode: DummyMode = 'human';
 const cursor: [number, number] = [0, Math.min(1, CHARACTER_IDS.length - 1)];
 const ready: [boolean, boolean] = [false, false];
@@ -160,6 +161,13 @@ $('btnCopy').onclick = async () => {
   try { await navigator.clipboard.writeText(input.value); $('btnCopy').textContent = '已複製'; }
   catch { input.select(); }
 };
+
+// 發佈版：預設開啟回合時間、隱藏開發用說明
+if (!import.meta.env.DEV) {
+  const tl = document.getElementById('timeLimit') as HTMLInputElement | null;
+  if (tl) tl.checked = true;
+  document.querySelectorAll<HTMLElement>('.dev-only').forEach((el) => (el.hidden = true));
+}
 
 // 開發模式：方便測試時讀取連線狀態
 if (import.meta.env.DEV || import.meta.env.VITE_DEBUG_ONLINE) (window as unknown as { __online: () => unknown }).__online = () => online?.debugInfo();
