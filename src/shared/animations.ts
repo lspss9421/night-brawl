@@ -59,7 +59,7 @@ const DINO_BASE: Base[] = [
 const GROUP_ORDER = ['基本', '移動', '一般技', '特殊技', '必殺技', '投技', '防禦', '受擊', '演出', '恐龍形態', '特效'];
 
 const SUGGESTED: Record<string, number> = {
-  sLP: 4, sHP: 6, sLK: 4, sHK: 6, cLP: 4, cHP: 6, cLK: 4, cHK: 6, jP: 4, jK: 4,
+  sLP: 4, sHP: 6, sLK: 4, sHK: 6, cLP: 4, cHP: 6, cLK: 4, cHK: 6, jLP: 4, jHP: 4, jLK: 4, jHK: 4,
   throwWhiff: 3, taunt: 6, dLight: 4, dHeavy: 6, dTail: 6, reversal: 6,
 };
 

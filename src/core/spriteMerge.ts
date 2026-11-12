@@ -41,7 +41,9 @@ export function applySpriteData(base: CharacterDef, data: CharacterSpriteData): 
       loop: anim.loop,
       frames: anim.frames.map((f) => {
         const hurt = f.hurt.map((b) => toGame(b, scale));
-        for (const h of f.hit) {
+        // 特殊技（例如鞭子）伸出去的武器不算受擊範圍
+        const isWeapon = def.moves[key]?.kind === 'special';
+        for (const h of isWeapon ? [] : f.hit) {
           const limbW = Math.min(h.w, 40); // 從手腳根部算起最多 40 素材像素
           hurt.push(toGame({ x: h.x, y: h.y, w: Math.max(1, Math.round(limbW * 0.8)), h: h.h }, scale));
         }

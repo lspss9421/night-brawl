@@ -194,6 +194,28 @@ describe('基本攻防', () => {
     expect(s.fighters[0].y).toBe(0);
   });
 
+  it('蹲重拳打中會把對手打飛到空中再倒地', () => {
+    const s = ready('sawa', 'mio', 600, 660);
+    step(s, [DOWN | HP, 0]);
+    let maxY = 0;
+    for (let k = 0; k < 60; k++) { step(s, [DOWN, 0]); maxY = Math.max(maxY, s.fighters[1].y); }
+    expect(maxY).toBeGreaterThan(80 * FP);
+    for (let k = 0; k < 60 && s.fighters[1].action !== 'knockdown'; k++) step(s, [0, 0]);
+    expect(s.fighters[1].action).toBe('knockdown');
+  });
+
+  it('空中四個鍵是四種不同的招', () => {
+    const ids: string[] = [];
+    for (const btn of [LP, HP, LK, HK]) {
+      const s = ready('sawa', 'mio', 300, 900);
+      step(s, [UP, 0]);
+      run(s, 8);
+      step(s, [btn, 0]);
+      ids.push(s.fighters[0].moveId ?? '');
+    }
+    expect(ids).toEqual(['jLP', 'jHP', 'jLK', 'jHK']);
+  });
+
   it('跳躍會離地再落地', () => {
     const s = ready('sawa', 'mio', 300, 900);
     step(s, [UP, 0]);

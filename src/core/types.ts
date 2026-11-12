@@ -54,6 +54,8 @@ export interface MoveDef {
   advance?: number;
   /** 必殺技畫面暫停的影格數。 */
   superFreeze?: number;
+  /** 擊飛：命中時把對手往上打飛（centi-px / 格）；需搭配 knockdown */
+  launch?: { vx: number; vy: number };
   /** 打不死人（對手最少留 1 滴血），例如鬥氣反擊 */
   nonLethal?: boolean;
 }
@@ -75,7 +77,7 @@ export interface FormStats {
   moves: {
     sLP?: string; sHP?: string; sLK?: string; sHK?: string;
     cLP?: string; cHP?: string; cLK?: string; cHK?: string;
-    jP?: string; jK?: string;
+    jLP?: string; jHP?: string; jLK?: string; jHK?: string;
     sp?: string;
   };
 }

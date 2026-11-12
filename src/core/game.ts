@@ -579,8 +579,11 @@ function tryAttack(s: GameState, i: 0 | 1, input: InputBits, ctx: AttackCtx): bo
     if (m?.kind === 'special' && !canSpend(f, SPECIAL_COST)) id = undefined; // 鬥氣不夠 1 格或燃盡中
   }
   if (!id && ctx === 'air') {
-    if (b & (Btn.HP | Btn.LP)) id = st.moves.jP;
-    else if (b & (Btn.HK | Btn.LK)) id = st.moves.jK;
+    // 空中四個鍵各是不同的招
+    if (b & Btn.HP) id = st.moves.jHP;
+    else if (b & Btn.HK) id = st.moves.jHK;
+    else if (b & Btn.LP) id = st.moves.jLP;
+    else if (b & Btn.LK) id = st.moves.jLK;
   } else if (!id && (b & (Btn.HP | Btn.HK | Btn.LP | Btn.LK))) {
     const crouch = held(input, Btn.DOWN) && st.canCrouch;
     const pick = (btn: number, sid?: string, cid?: string) => ((b & btn) ? (crouch ? cid : sid) : undefined);
@@ -927,8 +930,8 @@ function applyHit(s: GameState, h: PendingHit): void {
     setAction(d, 'airHit');
     d.airHitKnockdown = knock;
     d.y = Math.max(d.y, 1);
-    d.vx = pushDir * 400;
-    d.vy = knock ? 1100 : 600;
+    d.vx = pushDir * (m.launch && isLastHit ? m.launch.vx : 400);
+    d.vy = m.launch && isLastHit ? m.launch.vy : knock ? 1100 : 600;
   } else {
     const wasCrouch = isCrouching(d);
     setAction(d, 'hitstun');

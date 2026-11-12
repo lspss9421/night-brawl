@@ -122,7 +122,7 @@ describe('第二批動畫：蹲攻擊、空中攻擊時間和程式設定一致�
     it(id, () => {
       const base = getChar(id);
       const def = applySpriteData(base, data as CharacterSpriteData);
-      for (const m of ['cLP', 'cHP', 'cLK', 'cHK', 'jP', 'jK']) {
+      for (const m of ['cLP', 'cHP', 'cLK', 'cHK', 'jLP', 'jHP', 'jLK', 'jHK']) {
         const a = def.moves[m];
         const b = base.moves[m];
         expect([a.startup, a.active, a.recovery], `${id}.${m}`).toEqual([b.startup, b.active, b.recovery]);
