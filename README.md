@@ -1,0 +1,78 @@
+# Sawa × Mio 格鬥遊戲
+
+2D 網頁連線格鬥小遊戲（私人測試版）。
+
+## 怎麼玩（給朋友）
+
+1. 打開遊戲網址：**https://lspss94219.github.io/sawa-mio-fighter/**（建議用電腦版 Chrome 或 Edge）
+2. 一個人按「建立線上房間」，把 4 碼房號或邀請連結傳給另一個人
+3. 另一個人輸入房號按「加入房間」，或直接打開邀請連結
+4. 兩邊用 A / D 選角色、U 確定，就開始對戰
+
+**操作**：WASD 移動・U / I 輕／重拳・J / K 輕／重腳・L 特殊技・L+K 必殺技・→+I+K 投技・O 鬥氣（按住 = 檔架、防禦中按 = 鬥氣反擊）・T 挑釁
+
+連不上的話：兩邊換個網路再試（例如改用手機熱點）。有些公司／學校網路會擋住玩家之間的直接連線。
+
+規劃文件：[docs/PRD.md](docs/PRD.md)、角色設定：[docs/characters/](docs/characters/)。
+
+## M1 本機原型
+
+- 色塊代替角色，兩人同一台電腦對打（或 P2 換成假人自己練）
+- 移動、跳躍、衝刺／後撤、蹲、站防／蹲防、4 鍵一般技、連段取消、投技、挑釁
+- Sawa：愛心波動、必殺技「偶像演唱會」（全畫面、可防）
+- Mio：鞭擊、必殺技「變身恐龍」10 秒（攻擊 ×1.3、移速 ×0.7）
+- 血條、能量條、計時、三戰兩勝、出場／勝利／戰敗對話框
+
+## 戰鬥系統改版（參考 SF6）
+
+鬥氣槽（6 格）、燃盡、檔架／完美檔架、鬥氣反擊、投技發生時間與拆投、跟著動畫變化的受擊框、畫面震動、F1 除錯畫面（狀態／格數／有利格數）。規則細節見 [docs/PRD.md](docs/PRD.md) 3.3 節。
+
+## M4 線上對戰
+
+- 主選單：「建立線上房間」會拿到 4 碼房號和邀請連結；對方輸入房號或直接開連結就能加入
+- 雙方用 WebRTC 直接連線，對戰資料不經過伺服器；伺服器只負責配對（`server/rooms.mjs`）
+- 同步方式是 rollback：先用預測的對手輸入照常進行，收到真正的輸入後若不同就回到當時重新計算（`src/net/rollback.ts`）
+- 每 60 格交換一次狀態雜湊，不同步時畫面會出現警告
+- 對手超過 10 秒沒有回應就結束連線
+- 「線上輸入延遲」越大回滾越少、但操作會延遲；同一個城市建議 1～2 格
+- 開發測試：`npm run dev` 後開 http://localhost:5173/tools/netplay-test.html ，左右兩個視窗會自動建房、加入
+
+### 上線部署
+
+目前用 GitHub Pages 發佈：推送到 main 會自動建置並更新網址（見 `.github/workflows/deploy.yml`）。發佈版用 PeerJS 的免費公開伺服器配對（`VITE_SIGNALING=peerjs`），不需要自己架伺服器；本機開發（`npm run dev`）則用內建的配對伺服器。
+
+若要改用自己的配對伺服器：
+
+1. 前端：`npm run build`，把 `dist/` 放到靜態網站主機（Cloudflare Pages、Vercel 等）
+2. 配對伺服器：在支援 WebSocket 的主機執行 `npm run server`（預設埠號 8787，可用 `PORT` 改）
+3. 建置前端時設定 `VITE_SIGNAL_URL=wss://你的伺服器/ws`
+4. 有些網路（公司、學校、行動網路）需要 TURN 中繼伺服器才連得上：設定 `VITE_ICE_SERVERS='[{"urls":"stun:..."},{"urls":"turn:...","username":"...","credential":"..."}]'`
+
+## M3 角色素材接入
+
+- 遊戲啟動時讀取 `public/assets/characters/<角色>/` 的 sheet.png + data.json；沒有素材的角色（目前 Mio）仍用色塊
+- 招式的發生／持續／收招、攻擊範圍、受擊範圍、推擠寬度、飛行道具判定都以素材資料為準（`src/core/spriteMerge.ts`）
+- 某個動作還沒有動畫時，會用相近的動畫代替（例如沒有蹲攻擊就顯示蹲待機＋攻擊範圍）
+- AI 生成的原始圖放在 `art/<角色>/raw/`
+
+## M2 判定框編輯器
+
+開發伺服器啟動後打開 http://localhost:5173/editor.html ，使用說明見 [docs/editor.md](docs/editor.md)。
+
+## 執行
+
+```bash
+npm install
+npm run dev     # 打開 http://localhost:5173
+npm test        # 核心邏輯測試（含可決定性測試）
+```
+
+## 程式結構
+
+- `src/core/`：遊戲邏輯（固定 60 影格、純整數運算、不依賴畫面），之後 rollback 連線直接沿用
+  - `characters/`：角色數值與招式資料（M2 之後改由判定框編輯工具產生）
+- `src/client/`：鍵盤輸入、Canvas 繪圖、假人
+- `src/editor/`：判定框編輯器
+- `src/shared/`：素材資料格式（編輯器輸出、遊戲讀取）與每位角色的動畫清單
+- `public/assets/characters/<角色>/`：編輯器「存到遊戲專案」輸出的 sheet.png + data.json
+- `tests/`：核心邏輯測試

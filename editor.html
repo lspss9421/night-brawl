@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>角色判定框編輯器</title>
+    <link rel="stylesheet" href="/src/editor/editor.css" />
+  </head>
+  <body>
+    <header class="toolbar">
+      <strong class="brand">判定框編輯器</strong>
+      <label>角色 <select id="char"></select></label>
+      <span class="sep"></span>
+      <label class="btn primary">匯入影格<input id="importFrames" type="file" accept="image/png,image/webp,image/*" multiple hidden /></label>
+      <label title="把 #00FF00 綠色背景變透明"><input id="chroma" type="checkbox" checked /> 去除綠幕</label>
+      <label title="AI 把整組動作畫成一排時要切成幾格。0 = 自動依角色之間的空白切開；1 = 不切；2 以上 = 自動切開並調整成剛好這麼多格（有兩格黏在一起時用）">切成 <input id="columns" type="number" min="0" max="16" value="0" /> 格<span class="muted">（0=自動）</span></label>
+      <label title="AI 畫的一個「像素」通常是 3～4 個真實像素，縮小回去才是正確的像素大小">縮小 <input id="shrink" type="number" min="1" max="8" step="0.5" value="1" /> 倍</label>
+      <span class="sep"></span>
+      <button id="undo" title="Ctrl/⌘ + Z">復原</button>
+      <button id="redo" title="Ctrl/⌘ + Shift + Z">重做</button>
+      <span class="sep"></span>
+      <button id="saveProject" class="primary" title="存到 public/assets/characters/角色/">存到遊戲專案</button>
+      <button id="loadProject">從遊戲專案讀取</button>
+      <button id="exportDl">下載 sheet.png + data.json</button>
+      <label class="btn">讀取檔案<input id="importExport" type="file" accept=".json,.png,application/json,image/png" multiple hidden /></label>
+      <span class="grow"></span>
+      <span id="status" class="status"></span>
+    </header>
+
+    <main class="layout">
+      <aside class="anims" id="animList"></aside>
+
+      <section class="center">
+        <div class="tools" id="tools">
+          <button data-tool="select" title="V">選取 / 移動 <kbd>V</kbd></button>
+          <button data-tool="hurt" class="hurt" title="1">受擊框 <kbd>1</kbd></button>
+          <button data-tool="hit" class="hit" title="2">攻擊框 <kbd>2</kbd></button>
+          <button data-tool="push" class="push" title="3">推擠框 <kbd>3</kbd></button>
+          <button data-tool="anchor" class="anchor" title="A">腳底點 <kbd>A</kbd></button>
+          <span class="sep"></span>
+          <label><input id="onion" type="checkbox" checked /> 前一格殘影 <kbd>O</kbd></label>
+          <button id="fit">適合大小</button>
+          <span class="grow"></span>
+          <span class="hint">滾輪縮放 · 右鍵或 Alt 拖曳移動畫面 · 方向鍵微調（Shift ×10）</span>
+        </div>
+        <canvas id="view"></canvas>
+        <div class="strip-tools">
+          <span id="animTitle" class="anim-title"></span>
+          <span class="grow"></span>
+          <button id="frameLeft" title=",">◀ 左移</button>
+          <button id="frameRight" title=".">右移 ▶</button>
+          <button id="frameDup">複製此格</button>
+          <button id="frameDel" class="danger">刪除此格</button>
+          <button id="animClear" class="danger">清空整組</button>
+        </div>
+        <div class="strip" id="strip"></div>
+      </section>
+
+      <aside class="side">
+        <section class="panel">
+          <h3>預覽</h3>
+          <canvas id="preview"></canvas>
+          <div class="row">
+            <button id="play">暫停 <kbd>Space</kbd></button>
+            <label><input id="pvBoxes" type="checkbox" checked /> 判定框</label>
+            <label><input id="pvMirror" type="checkbox" /> 面朝左</label>
+          </div>
+          <div class="row">
+            <label>遊戲中放大 <input id="scale" type="number" min="1" max="8" step="1" /> 倍</label>
+          </div>
+        </section>
+        <section class="panel">
+          <h3>動畫</h3>
+          <div class="row"><label><input id="loop" type="checkbox" /> 循環播放</label></div>
+          <div id="timing" class="timing"></div>
+          <div class="row wrap">
+            <button id="autoAnchorAll">整組自動對齊腳底</button>
+            <button id="autoBoxesAll">整組自動受擊／推擠框</button>
+            <button id="durationAll">停留格數套用到整組</button>
+          </div>
+        </section>
+        <section class="panel" id="framePanel">
+          <h3>這一格</h3>
+          <div class="row"><label>停留 <input id="duration" type="number" min="1" max="120" /> 影格</label><span class="muted">（60 = 1 秒）</span></div>
+          <div class="row wrap">
+            <button id="autoAnchor">自動對齊腳底</button>
+            <button id="copyPrevBoxes">複製上一格的判定框</button>
+          </div>
+          <div id="boxPanel" class="box-panel"></div>
+        </section>
+        <section class="panel" id="movePanel">
+          <h3>招式數值</h3>
+          <div id="moveFields"></div>
+        </section>
+      </aside>
+    </main>
+    <div id="dropHint" class="drop-hint">放開以匯入影格</div>
+    <script type="module" src="/src/editor/main.ts"></script>
+  </body>
+</html>

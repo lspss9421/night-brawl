@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <title>連線測試（兩個視窗）</title>
+    <style>
+      body { margin: 0; background: #111; color: #ccc; font-family: sans-serif; }
+      .bar { padding: 6px 10px; font-size: 13px; }
+      .wrap { display: flex; gap: 6px; padding: 0 6px; }
+      iframe { flex: 1; height: 92vh; border: 2px solid #333; border-radius: 6px; background: #000; }
+      iframe:focus-within { border-color: #f06292; }
+    </style>
+  </head>
+  <body>
+    <div class="bar">開發用：左邊建立房間，右邊會自動用房號加入。點一下要操作的那一邊再按鍵盤。</div>
+    <div class="wrap">
+      <iframe id="host" src="/"></iframe>
+      <iframe id="guest"></iframe>
+    </div>
+    <script>
+      // 左邊按「建立線上房間」後，把房號帶進右邊
+      const host = document.getElementById('host');
+      const guest = document.getElementById('guest');
+      host.addEventListener('load', () => {
+        const w = host.contentWindow;
+        const timer = setInterval(() => {
+          const m = w.location.search.match(/room=([A-Z0-9]{4})/);
+          if (m) { clearInterval(timer); guest.src = '/?room=' + m[1]; }
+        }, 300);
+      });
+    </script>
+  </body>
+</html>

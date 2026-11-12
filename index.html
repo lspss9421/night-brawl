@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="zh-Hant">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Sawa × Mio 格鬥</title>
+    <style>
+      html, body { margin: 0; height: 100%; background: #14101f; color: #ddd; font-family: "PingFang TC", "Noto Sans TC", sans-serif; }
+      body { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; }
+      canvas { width: min(100vw, calc((100vh - 110px) * 16 / 9)); aspect-ratio: 16 / 9; background: #000; border-radius: 8px; image-rendering: pixelated; }
+      .help { font-size: 13px; line-height: 1.7; text-align: center; opacity: 0.85; }
+      kbd { background: #2c2440; border: 1px solid #4a3f66; border-radius: 4px; padding: 0 5px; font-family: inherit; }
+      .stage { position: relative; }
+      .menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(20, 16, 31, 0.55); border-radius: 8px; }
+      .menu[hidden], .invite[hidden] { display: none; }
+      .menu h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 56px); color: #fff; letter-spacing: 2px; text-shadow: 0 4px 0 #b71c4a; }
+      .menu button, .invite button { font: inherit; font-size: 16px; padding: 10px 22px; border-radius: 10px; border: 2px solid #f06292; background: #2c2440; color: #fff; cursor: pointer; min-width: 260px; }
+      .menu button:hover, .invite button:hover { background: #f06292; }
+      .menu .row { display: flex; gap: 8px; }
+      .menu .row button { min-width: 0; }
+      .menu input, .menu select, .invite input { font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid #4a3f66; background: #1d1830; color: #fff; }
+      .menu input#roomCode { width: 110px; text-transform: uppercase; letter-spacing: 4px; text-align: center; }
+      .menu .error { color: #ff8a80; min-height: 1.2em; }
+      .invite { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.6); padding: 10px 14px; border-radius: 10px; color: #fff; }
+      .invite input { width: 300px; }
+      .invite button { min-width: 0; padding: 8px 14px; }
+    </style>
+  </head>
+  <body>
+    <div class="stage">
+      <canvas id="game"></canvas>
+      <div id="menu" class="menu">
+        <h1>Sawa × Mio</h1>
+        <button id="btnLocal">本機對戰（同一台電腦／打假人）</button>
+        <button id="btnCreate">建立線上房間</button>
+        <div class="row"><input id="roomCode" maxlength="4" placeholder="房號" autocomplete="off" /><button id="btnJoin">加入房間</button></div>
+        <label><input id="timeLimit" type="checkbox" /> 回合時間限制 99 秒（不勾 = 時間無限）</label>
+        <label>線上輸入延遲 <select id="delay"><option value="0">0 格</option><option value="1">1 格</option><option value="2" selected>2 格（建議）</option><option value="3">3 格</option><option value="4">4 格</option></select></label>
+        <div id="menuError" class="error"></div>
+      </div>
+      <div id="invite" class="invite" hidden>邀請連結 <input id="inviteLink" readonly /><button id="btnCopy">複製</button></div>
+    </div>
+    <div class="help">
+      <b>P1</b> <kbd>WASD</kbd> 移動 · <kbd>U</kbd>/<kbd>I</kbd> 輕/重拳 · <kbd>J</kbd>/<kbd>K</kbd> 輕/重腳 · <kbd>L</kbd> 特殊 · <kbd>L</kbd>+<kbd>K</kbd> 必殺 · <kbd>→</kbd>+<kbd>I</kbd>+<kbd>K</kbd> 投技 · <kbd>O</kbd> 鬥氣 · <kbd>T</kbd> 挑釁<br />
+      <b>P2</b> <kbd>方向鍵</kbd> 移動 · <kbd>P</kbd>/<kbd>[</kbd> 輕/重拳 · <kbd>;</kbd>/<kbd>'</kbd> 輕/重腳 · <kbd>]</kbd> 特殊 · <kbd>]</kbd>+<kbd>'</kbd> 必殺 · <kbd>/</kbd> 鬥氣 · <kbd>\</kbd> 挑釁<br />
+      按住「後」防禦、蹲著按住後 = 蹲防 · 按住鬥氣 = 檔架 · 防禦中按鬥氣 = 鬥氣反擊 · 被抓時按投技 = 拆投 · 連按兩下前/後 = 衝刺/後撤 · <kbd>F1</kbd> 判定框 · <kbd>F2</kbd> 切換玩家 2／假人 · <kbd>Esc</kbd> 返回
+    </div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

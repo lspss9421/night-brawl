@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.DS_Store
+# AI 生成的原始圖只留在本機
+art/
+# 本機開發工具設定
+.claude/
