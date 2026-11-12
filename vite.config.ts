@@ -59,7 +59,11 @@ function signalingPlugin(): Plugin {
   };
 }
 
+// 版本號：GitHub Actions 建置時用 commit 編號，本機開發顯示 dev
+const APP_VERSION = `${(process.env.GITHUB_SHA ?? 'dev').slice(0, 7)} · ${new Date().toISOString().slice(0, 16).replace('T', ' ')}`;
+
 export default defineConfig({
+  define: { __APP_VERSION__: JSON.stringify(APP_VERSION) },
   // 相對路徑：發佈到 GitHub Pages 的子路徑（/儲存庫名稱/）也能正常載入
   base: './',
   plugins: [editorSavePlugin(), signalingPlugin()],

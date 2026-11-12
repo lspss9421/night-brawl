@@ -21,6 +21,7 @@
       .menu input, .menu select, .invite input { font: inherit; font-size: 16px; padding: 8px 10px; border-radius: 8px; border: 1px solid #4a3f66; background: #1d1830; color: #fff; }
       .menu input#roomCode { width: 110px; text-transform: uppercase; letter-spacing: 4px; text-align: center; }
       .menu .error { color: #ff8a80; min-height: 1.2em; }
+      .menu .version { position: absolute; right: 12px; bottom: 8px; font-size: 12px; color: #9a92b3; }
       .invite { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.6); padding: 10px 14px; border-radius: 10px; color: #fff; }
       .invite input { width: 300px; }
       .invite button { min-width: 0; padding: 8px 14px; }
@@ -37,6 +38,7 @@
         <label><input id="timeLimit" type="checkbox" /> 回合時間限制 99 秒（不勾 = 時間無限）</label>
         <label>線上輸入延遲 <select id="delay"><option value="0">0 格</option><option value="1">1 格</option><option value="2" selected>2 格（建議）</option><option value="3">3 格</option><option value="4">4 格</option></select></label>
         <div id="menuError" class="error"></div>
+        <div id="version" class="version"></div>
       </div>
       <div id="invite" class="invite" hidden>邀請連結 <input id="inviteLink" readonly /><button id="btnCopy">複製</button></div>
     </div>

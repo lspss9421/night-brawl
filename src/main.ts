@@ -162,6 +162,10 @@ $('btnCopy').onclick = async () => {
   catch { input.select(); }
 };
 
+declare const __APP_VERSION__: string;
+const versionEl = document.getElementById('version');
+if (versionEl) versionEl.textContent = `版本 ${__APP_VERSION__}`;
+
 // 發佈版：預設開啟回合時間、隱藏開發用說明
 if (!import.meta.env.DEV) {
   const tl = document.getElementById('timeLimit') as HTMLInputElement | null;
