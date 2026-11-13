@@ -241,19 +241,27 @@ describe('基本攻防', () => {
 });
 
 describe('鬥氣（Drive）', () => {
-  it('開局鬥氣全滿，特殊技扣 1 格', () => {
-    const s = ready('sawa', 'mio', 300, 900);
-    expect(s.fighters[0].drive).toBe(DRIVE_MAX);
-    tap(s, SP);
-    expect(s.fighters[0].drive).toBeLessThan(DRIVE_MAX - DRIVE_BAR + 200);
+  it('開局鬥氣全滿；Sawa 愛心波動、Mio 鞭擊各扣 2 格', () => {
+    for (const ch of ['sawa', 'mio']) {
+      const s = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
+      expect(s.fighters[0].drive).toBe(DRIVE_MAX);
+      tap(s, SP);
+      expect(s.fighters[0].moveId, ch).toBe('sp');
+      const d = s.fighters[0].drive;
+      expect(d, ch).toBeLessThan(DRIVE_MAX - 2 * DRIVE_BAR + 200);
+      expect(d, ch).toBeGreaterThan(DRIVE_MAX - 2 * DRIVE_BAR - 200);
+    }
   });
 
-  it('鬥氣不到 1 格時放不出特殊技', () => {
-    const s = ready('sawa', 'mio', 300, 900);
-    s.fighters[0].drive = DRIVE_BAR / 2; // 半格（按鍵緩衝 5 格內回不到 1 格）
-    tap(s, SP);
-    run(s, 20);
-    expect(s.projectiles.length).toBe(0);
+  it('鬥氣不到 2 格時放不出特殊技', () => {
+    for (const ch of ['sawa', 'mio']) {
+      const s = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
+      s.fighters[0].drive = DRIVE_BAR * 1.5; // 1.5 格（按鍵緩衝 5 格內回不到 2 格）
+      tap(s, SP);
+      run(s, 20);
+      expect(s.fighters[0].moveId, ch).not.toBe('sp');
+      expect(s.projectiles.length).toBe(0);
+    }
   });
 
   it('一般攻擊打中回復鬥氣', () => {
@@ -406,11 +414,11 @@ describe('Mio', () => {
     expect(s2.fighters[1].hp).toBe(900 - 90);
   });
 
-  it('必殺技變身恐龍 10 秒：攻擊力 ×1.3、變慢、時間到變回來', () => {
+  it('必殺技變身恐龍 20 秒：變慢、時間到變回來', () => {
     const s = ready('mio', 'sawa', 300, 900);
     s.fighters[0].meter = METER_MAX;
     step(s, [SP | HK, 0]);
-    run(s, 40 + 50 + 1); // 畫面暫停 40 + 變身動作 50
+    run(s, 80 + 124 + 1); // 畫面暫停 80 + 變身動作 124（戴帽、邪惡力量爆發、怒吼）
     const m = s.fighters[0];
     expect(m.form).toBe('dino');
 
@@ -419,21 +427,21 @@ describe('Mio', () => {
     const dinoWalk = m.x - x0;
     expect(dinoWalk).toBe(280 * 10);
 
-    run(s, 600);
+    run(s, 1200);
     expect(m.form).toBe('normal');
   });
 
-  it('恐龍形態的攻擊傷害 ×1.3', () => {
+  it('恐龍形態的攻擊傷害 ×1.5', () => {
     const s = ready('mio', 'sawa', 300, 900);
     s.fighters[0].meter = METER_MAX;
     step(s, [SP | HK, 0]);
-    run(s, 90);
+    run(s, 80 + 124 + 5); // 等變身動作整段結束
     s.fighters[0].x = 600 * FP;
     s.fighters[1].x = 700 * FP;
     run(s, 2);
     tap(s, LP);
     run(s, 30);
-    expect(s.fighters[1].hp).toBe(900 - Math.trunc(40 * 1.3));
+    expect(s.fighters[1].hp).toBe(900 - Math.trunc(40 * 1.5));
   });
 });
 
@@ -522,5 +530,69 @@ describe('攻擊範圍', () => {
       expect(hb.x, id).toBeGreaterThanOrEqual(body.x + body.w - 20);
       expect(hb.y + hb.h, id).toBeGreaterThan(body.y + body.h);
     }
+  });
+});
+
+describe('Mio 恐龍形態（奶龍）', () => {
+  const transform = (s: GameState) => {
+    const m = s.fighters[1];
+    m.meter = METER_MAX;
+    tap(s, 0, SP | HK);
+    while (m.form !== 'dino' || m.action === 'attack') step(s, [0, 0]); // 變身後還有怒吼動作，等它結束
+    run(s, 2);
+  };
+
+  it('變身持續 20 秒', () => {
+    const s = ready('sawa', 'mio', 400, 700);
+    transform(s);
+    const m = s.fighters[1];
+    expect(m.formTimer).toBeGreaterThan(20 * 60 - 70); // 怒吼動作約 1 秒也算在變身時間裡
+    run(s, m.formTimer + 5);
+    expect(m.form).toBe('normal');
+  });
+
+  it('恐龍形態比較耐打（受到的傷害較少）', () => {
+    const hitMio = (dino: boolean) => {
+      const s = ready('sawa', 'mio', 600, 680);
+      if (dino) { transform(s); s.fighters[0].x = 600 * FP; s.fighters[1].x = 680 * FP; }
+      const hp0 = s.fighters[1].hp;
+      tap(s, HP);
+      run(s, 30);
+      return hp0 - s.fighters[1].hp;
+    };
+    const normal = hitMio(false);
+    const dino = hitMio(true);
+    expect(normal).toBeGreaterThan(0);
+    expect(dino).toBeLessThan(normal);
+  });
+
+  it('龍之吐息扣 3 格鬥氣、不夠就放不出來，可以連打 4 下', () => {
+    const s = ready('sawa', 'mio', 500, 700);
+    transform(s);
+    const m = s.fighters[1];
+    m.drive = 2 * DRIVE_BAR;
+    tap(s, 0, SP);
+    expect(m.moveId).not.toBe('dBreath');
+    run(s, 10);
+    m.drive = DRIVE_MAX;
+    tap(s, 0, SP);
+    expect(m.moveId).toBe('dBreath');
+    expect(m.drive).toBeLessThanOrEqual(DRIVE_MAX - 3 * DRIVE_BAR + 200);
+    s.fighters[0].x = m.x - 150 * FP;
+    run(s, 70);
+    expect(s.fighters[0].comboHits === 0 ? m.hitsDone : m.hitsDone).toBe(4);
+  });
+});
+
+describe('測試選項', () => {
+  it('能量一直是滿的：放完必殺技馬上又是滿的', () => {
+    const s = createGame('sawa', 'mio', { infiniteMeter: true });
+    while (s.phase !== 'fight') step(s, [0, 0]);
+    step(s, [0, 0]);
+    expect(s.fighters[0].meter).toBe(METER_MAX);
+    step(s, [SP | HK, 0]);
+    run(s, 2);
+    expect(s.fighters[0].moveId).toBe('super');
+    expect(s.fighters[0].meter).toBe(METER_MAX);
   });
 });

@@ -66,7 +66,7 @@ const BURNOUT_BLOCKSTUN = 4;
 const BURNOUT_CHIP_DIV = 4;
 const TAUNT_FRAMES = 90;
 const INTRO_FIRST = 150;
-const INTRO_NEXT = 90;
+const INTRO_NEXT = 150; // 每回合都播完整的開場動畫
 const KO_POSE_AT = 90;
 const KO_END_AT = 260;
 const PUSH_OVER_HEIGHT = 120 * FP;
@@ -119,6 +119,8 @@ function newFighter(charId: string, side: 0 | 1, wins: number): FighterState {
 export interface GameOptions {
   /** 回合時間限制（99 秒）；false = 時間無限 */
   timeLimit?: boolean;
+  /** 測試用：能量一直是滿的，可以一直放必殺技 */
+  infiniteMeter?: boolean;
 }
 
 export function createGame(p1: string, p2: string, opts: GameOptions = {}): GameState {
@@ -129,6 +131,7 @@ export function createGame(p1: string, p2: string, opts: GameOptions = {}): Game
     round: 1,
     timer: ROUND_FRAMES,
     timeLimit: opts.timeLimit ?? false,
+    infiniteMeter: opts.infiniteMeter ?? false,
     fighters: [newFighter(p1, 0, 0), newFighter(p2, 1, 0)],
     projectiles: [],
     sparks: [],
@@ -256,6 +259,7 @@ export function step(s: GameState, inputs: [InputBits, InputBits]): void {
   s.frame++;
   s.events = [];
   tickCosmetics(s);
+  if (s.infiniteMeter) for (const f of s.fighters) f.meter = METER_MAX; // 測試用：能量一直補滿
 
   const live = s.phase === 'fight';
   const ins: [InputBits, InputBits] = live ? inputs : [0, 0];
@@ -361,7 +365,7 @@ function startMove(s: GameState, i: 0 | 1, id: string): void {
   if (m.invuln) f.invuln = Math.max(f.invuln, m.invuln);
   if (m.superFreeze) s.superFreeze = { owner: i, timer: m.superFreeze };
   if (m.kind === 'taunt') f.bubble = { text: getChar(f.charId).texts.taunt, timer: TAUNT_FRAMES };
-  if (m.kind === 'special') addDrive(s, f, -SPECIAL_COST);
+  if (m.kind === 'special') addDrive(s, f, -(m.driveCost ?? SPECIAL_COST));
   if (m.kind === 'reversal') {
     addDrive(s, f, -REVERSAL_COST);
     s.events.push('reversal');
@@ -592,7 +596,7 @@ function tryAttack(s: GameState, i: 0 | 1, input: InputBits, ctx: AttackCtx): bo
     id = st.moves.sp;
     const m = id ? c.moves[id] : undefined;
     if (m?.projectile && s.projectiles.some((p) => p.owner === i)) id = undefined; // 一次只能有一發
-    if (m?.kind === 'special' && !canSpend(f, SPECIAL_COST)) id = undefined; // 鬥氣不夠 1 格或燃盡中
+    if (m?.kind === 'special' && !canSpend(f, m.driveCost ?? SPECIAL_COST)) id = undefined; // 鬥氣不夠或燃盡中
   }
   if (!id && ctx === 'air') {
     // 空中四個鍵各是不同的招
@@ -728,7 +732,7 @@ function updateAttack(s: GameState, i: 0 | 1, input: InputBits, c: CharacterDef,
   if (m.kind === 'transform' && f.frame === m.startup && c.transform) {
     f.form = 'dino';
     f.formTimer = c.transform.duration;
-    s.sparks.push({ x: f.x, y: 100 * FP, timer: 24, kind: 'puff' });
+    // 變身的爆發效果已經畫在動畫裡（邪惡力量、黑煙），不再另外冒白煙
   }
 
   if (m.stance === 'air') {
@@ -930,7 +934,8 @@ function applyHit(s: GameState, h: PendingHit): void {
   }
 
   const scale = Math.max(50, 100 - 10 * Math.max(0, d.comboHits - 2));
-  const dmg = Math.max(1, Math.trunc((m.damage * formStats(a).damagePct * scale) / 10000));
+  const defense = formStats(d).defensePct ?? 100; // 恐龍形態等比較耐打
+  const dmg = Math.max(1, Math.trunc((m.damage * formStats(a).damagePct * scale * defense) / 1000000));
   d.hp = Math.max(m.nonLethal ? Math.min(1, d.hp) : 0, d.hp - dmg);
   // 一般攻擊打中回復鬥氣
   if (m.kind === 'normal' && !h.fromProjectile) addDrive(s, a, m.damage < 50 ? HIT_GAIN_LIGHT : HIT_GAIN_HEAVY);

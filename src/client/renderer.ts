@@ -37,9 +37,11 @@ export interface RenderOptions {
   p2Label: string;
 }
 
-// 對戰場景：西門町（只用在對戰畫面；讀不到圖時改畫原本的漸層背景）
-const stageImage = new Image();
-stageImage.src = `${import.meta.env.BASE_URL}assets/stages/ximending.webp`;
+// 背景圖：對戰＝西門町、主選單＝霓虹長街、選角＝霓虹街角（讀不到圖時改畫漸層）
+const loadImage = (file: string) => { const im = new Image(); im.src = `${import.meta.env.BASE_URL}assets/stages/${file}`; return im; };
+const stageImage = loadImage('ximending.webp');
+const menuImage = loadImage('menu.jpg');
+const selectImage = loadImage('select.jpg');
 
 // 介面框美術（血量／鬥氣／能量）：圖和中間空格的位置（圖片座標）
 interface HudPart { name: string; w: number; h: number; slots: Box[] }
@@ -116,6 +118,27 @@ void fetch(`${import.meta.env.BASE_URL}assets/ui/bubbles.json`)
 // 先把字型載好，畫布才會用到（載不到就用預設字型）
 for (const b of Object.values(BUBBLE_STYLE)) void document.fonts?.load(b.font).catch(() => {});
 
+// 必殺技橫幅美術（目前只有 Mio）：圖和放台詞的區域（相對於圖的比例）
+interface SuperMeta { image: string; w: number; h: number; text: { x: number; y: number; w: number; h: number } }
+const superMeta: Record<string, SuperMeta> = {};
+const superImages: Record<string, HTMLImageElement> = {};
+void fetch(`${import.meta.env.BASE_URL}assets/ui/super.json`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((j: Record<string, SuperMeta> | null) => {
+    for (const [id, m] of Object.entries(j ?? {})) {
+      superMeta[id] = m;
+      const im = new Image();
+      im.src = `${import.meta.env.BASE_URL}assets/ui/${m.image}`;
+      superImages[id] = im;
+    }
+  })
+  .catch(() => {});
+
+// 選角畫面：角色照片和類型說明
+const portraits: Record<string, HTMLImageElement> = {};
+for (const id of ['sawa', 'mio']) { const im = new Image(); im.src = `${import.meta.env.BASE_URL}assets/portraits/${id}.jpg`; portraits[id] = im; }
+const SELECT_TAG: Record<string, string> = { sawa: '速度型', mio: '沒特別型' };
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
 
@@ -140,7 +163,12 @@ export class Renderer {
       const k = s.shake.mag * Math.min(1, s.shake.timer / 8);
       g.translate((s.frame % 2 ? 1 : -1) * k, (s.frame % 3 === 0 ? 1 : -1) * k * 0.6);
     }
-    this.drawStage(true);
+    this.drawStage('battle');
+    // Sawa 演唱會的聚光燈畫在角色後面：舞台變暗、燈光照下來，角色本身保持原本的顏色
+    for (const f of s.fighters) {
+      const m = currentMove(f);
+      if (f.charId === 'sawa' && f.action === 'attack' && m?.kind === 'super') this.drawSpotlights(this.sx(f.x), f.frame, m.startup + m.active + m.recovery);
+    }
     for (const f of s.fighters) this.drawFighter(s, f, opt.showBoxes);
     this.drawSuperEffects(s);
     for (const p of s.projectiles) this.drawProjectile(s, p);
@@ -189,17 +217,18 @@ export class Renderer {
     g.textAlign = 'left';
   }
 
-  /** battle = true：對戰畫面用西門町背景；其他畫面（主選單、選角、訊息）先用漸層 */
-  private drawStage(battle = false): void {
+  /** 背景：對戰＝西門町、主選單和訊息＝霓虹長街、選角＝霓虹街角；圖還沒讀好就用漸層 */
+  private drawStage(kind: 'battle' | 'menu' | 'select' = 'menu'): void {
     const g = this.ctx;
-    if (battle && stageImage.complete && stageImage.naturalWidth > 0) {
+    const img = kind === 'battle' ? stageImage : kind === 'select' ? selectImage : menuImage;
+    if (img.complete && img.naturalWidth > 0) {
       // 背景圖：等比例放大蓋滿整個畫面（置中裁切）
-      const k = Math.max(SCREEN_W / stageImage.naturalWidth, SCREEN_H / stageImage.naturalHeight);
-      const w = stageImage.naturalWidth * k, h = stageImage.naturalHeight * k;
-      g.drawImage(stageImage, (SCREEN_W - w) / 2, (SCREEN_H - h) / 2, w, h);
-      // 上方稍微壓暗，讓血條和文字看得清楚
+      const k = Math.max(SCREEN_W / img.naturalWidth, SCREEN_H / img.naturalHeight);
+      const w = img.naturalWidth * k, h = img.naturalHeight * k;
+      g.drawImage(img, (SCREEN_W - w) / 2, (SCREEN_H - h) / 2, w, h);
+      // 上方稍微壓暗，讓血條、標題和文字看得清楚（選角畫面字比較多，壓暗一些）
       const shade = g.createLinearGradient(0, 0, 0, 240);
-      shade.addColorStop(0, 'rgba(0,0,0,0.45)');
+      shade.addColorStop(0, `rgba(0,0,0,${kind === 'select' ? 0.6 : 0.45})`);
       shade.addColorStop(1, 'rgba(0,0,0,0)');
       g.fillStyle = shade;
       g.fillRect(0, 0, SCREEN_W, 240);
@@ -239,7 +268,9 @@ export class Renderer {
     g.fill();
 
     const m = currentMove(f);
-    const flash = f.invuln > 0 && Math.floor(s.frame / 3) % 2 === 0;
+    // 無敵時閃爍；必殺技和變身演出中不閃（整段都是無敵，閃起來會看不清楚）
+    const showOff = f.action === 'attack' && (m?.kind === 'super' || m?.kind === 'transform');
+    const flash = f.invuln > 0 && !showOff && Math.floor(s.frame / 3) % 2 === 0;
     const set = sprites.get(f.charId);
     const pick = set ? pickAnim(s, f, set.data.animations) : null;
     let w = st.hurtStand.w;
@@ -414,9 +445,9 @@ export class Renderer {
     for (const f of s.fighters) {
       const m = currentMove(f);
       if (!m?.fullScreen || f.action !== 'attack') continue;
+      const cx = this.sx(f.x);
       const t = f.frame - m.startup;
       if (t < 0 || t > m.active) continue;
-      const cx = this.sx(f.x);
       const cy = this.sy(f.y + 150 * FP);
       g.lineWidth = 6;
       for (let k = 0; k < 4; k++) {
@@ -434,14 +465,50 @@ export class Renderer {
         const ny = 120 + ((k * 83 + t * 3) % 380);
         g.fillText(k % 2 ? '♪' : '♫', nx, ny);
       }
-      // 麥克風
-      g.fillStyle = '#ddd';
-      g.fillRect(cx + f.facing * 20 - 4, cy - 10, 8, 30);
-      g.fillStyle = '#555';
-      g.beginPath();
-      g.arc(cx + f.facing * 20, cy - 14, 9, 0, Math.PI * 2);
-      g.fill();
     }
+  }
+
+  /** Sawa 必殺技的舞台燈光：畫面變暗＋三道聚光燈照在她身上，唱歌時燈光顏色慢慢變換。 */
+  private drawSpotlights(cx: number, frame: number, total: number): void {
+    const g = this.ctx;
+    const fadeIn = Math.min(1, frame / 8);
+    const fadeOut = Math.min(1, Math.max(0, (total - frame) / 12));
+    const k = fadeIn * fadeOut;
+    if (k <= 0) return;
+    // 1. 舞台變暗
+    g.fillStyle = `rgba(8,0,20,${0.5 * k})`;
+    g.fillRect(0, 0, SCREEN_W, SCREEN_H);
+    // 2. 聚光燈：從畫面上方三個點照下來，一開始偏開、10 格內掃到她身上
+    const swing = Math.max(0, 1 - Math.max(0, frame - 4) / 10);
+    const footY = GROUND_Y + 6;
+    const colors = ['255,170,220', '255,250,235', '170,230,255'];
+    g.save();
+    g.globalCompositeOperation = 'lighter';
+    [-430, 0, 430].forEach((dx, i) => {
+      const topX = cx + dx * 0.9;
+      const aim = cx + dx * 1.1 * swing + Math.sin(frame / 14 + i) * 18 * (1 - swing);
+      const col = frame > 30 ? colors[(i + Math.floor(frame / 20)) % 3] : '255,248,235';
+      const gr = g.createLinearGradient(0, -20, 0, footY);
+      gr.addColorStop(0, `rgba(${col},${0.05 * k})`);
+      gr.addColorStop(1, `rgba(${col},${0.32 * k})`);
+      g.fillStyle = gr;
+      g.beginPath();
+      g.moveTo(topX - 14, -20);
+      g.lineTo(topX + 14, -20);
+      g.lineTo(aim + 95, footY);
+      g.lineTo(aim - 95, footY);
+      g.closePath();
+      g.fill();
+    });
+    // 3. 腳下的光圈
+    const pool = g.createRadialGradient(cx, footY, 4, cx, footY, 130);
+    pool.addColorStop(0, `rgba(255,240,250,${0.45 * k * (1 - swing)})`);
+    pool.addColorStop(1, 'rgba(255,240,250,0)');
+    g.fillStyle = pool;
+    g.beginPath();
+    g.ellipse(cx, footY, 130, 26, 0, 0, Math.PI * 2);
+    g.fill();
+    g.restore();
   }
 
   private drawSpark(x: number, y: number, timer: number, kind: string): void {
@@ -585,6 +652,7 @@ export class Renderer {
     g.fillStyle = 'rgba(10,0,20,0.55)';
     g.fillRect(0, 0, SCREEN_W, SCREEN_H);
     const c = getChar(f.charId);
+    if (this.drawSuperBanner(s, f.charId, c.texts.super ?? `${c.name}　${m?.name ?? ''}`, (m?.superFreeze ?? 40) - s.superFreeze!.timer)) return;
     g.fillStyle = c.color;
     g.fillRect(0, 300, SCREEN_W, 90);
     g.font = `bold 52px ${FONT}`;
@@ -595,6 +663,48 @@ export class Renderer {
     const text = `${c.name}　${m?.name ?? ''}`;
     g.strokeText(text, SCREEN_W / 2, 364);
     g.fillText(text, SCREEN_W / 2, 364);
+  }
+
+  /** 有專屬橫幅美術的角色：橫幅從左邊滑進來，台詞彈出來。回傳是否已畫。 */
+  private drawSuperBanner(s: GameState, charId: string, text: string, t: number): boolean {
+    const meta = superMeta[charId];
+    const im = meta && superImages[charId];
+    if (!meta || !im?.complete || !im.naturalWidth) return false;
+    const g = this.ctx;
+    const ease = (x: number) => 1 - (1 - Math.min(1, Math.max(0, x))) ** 3;
+    const by = SCREEN_H / 2 - meta.h / 2 - 20;
+    const bx = -SCREEN_W * (1 - ease(t / 8)); // 前 8 格從左邊滑入
+    const shake = t < 14 ? ((s.frame % 2) * 2 - 1) * (14 - t) * 0.4 : 0;
+    g.drawImage(im, bx + shake, by, meta.w, meta.h);
+    // 台詞：橫幅到位後放大彈出
+    if (t >= 6) {
+      const k = 1 + 0.5 * (1 - ease((t - 6) / 7));
+      const cx = bx + (meta.text.x + meta.text.w / 2) * meta.w;
+      const cy = by + (meta.text.y + meta.text.h / 2) * meta.h;
+      g.save();
+      g.translate(cx + shake, cy);
+      g.scale(k, k);
+      g.rotate(-0.03);
+      g.font = `bold 66px Huninn, ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineJoin = 'round';
+      g.strokeStyle = '#5a2d00';
+      g.lineWidth = 14;
+      g.strokeText(text, 0, 0);
+      g.strokeStyle = '#ffffff';
+      g.lineWidth = 6;
+      g.strokeText(text, 0, 0);
+      const gr = g.createLinearGradient(0, -34, 0, 34);
+      gr.addColorStop(0, '#fff6b0');
+      gr.addColorStop(0.5, '#ffb300');
+      gr.addColorStop(1, '#ff6f00');
+      g.fillStyle = gr;
+      g.fillText(text, 0, 0);
+      g.restore();
+      g.textBaseline = 'alphabetic';
+    }
+    return true;
   }
 
   private drawHud(s: GameState, opt: RenderOptions): void {
@@ -796,7 +906,7 @@ export class Renderer {
     let text = '';
     let sub = '';
     if (s.phase === 'intro') {
-      const len = s.round === 1 ? 150 : 90;
+      const len = 150; // 每回合開場一樣長（和 core 的 INTRO_FIRST / INTRO_NEXT 一致）
       text = s.phaseTimer > len - 40 ? 'FIGHT!' : `ROUND ${s.round}`;
     } else if (s.phase === 'ko' && s.phaseTimer < 90) {
       text = s.roundResult?.reason === 'time' ? 'TIME' : 'K.O.';
@@ -823,49 +933,110 @@ export class Renderer {
   }
 
   // ───── 角色選擇畫面 ─────
-  drawSelect(ids: string[], cursor: [number, number], ready: [boolean, boolean], p2Label: string, hint?: string, tags: [string, string] = ['P1', 'P2']): void {
+  drawSelect(ids: string[], cursor: [number, number], ready: [boolean, boolean], p2Label: string, hint?: string, tags: [string, string] = ['P1', 'P2'], countdown = 0): void {
     const g = this.ctx;
-    this.drawStage();
+    this.drawStage('select');
     g.textAlign = 'center';
     g.fillStyle = '#fff';
     g.font = `bold 48px ${FONT}`;
     g.fillText('選擇角色', SCREEN_W / 2, 90);
     g.font = `18px ${FONT}`;
-    g.fillText(hint ?? 'P1：A / D 選擇、U 確定　　P2：← / → 選擇、P 確定　　F2：切換玩家 2 / 假人', SCREEN_W / 2, 130);
+    g.fillText(hint ?? 'P1：A / D 選擇、U 確定　　P2：← / → 選擇、P 確定　　F2：切換玩家 2／電腦／假人', SCREEN_W / 2, 124);
 
+    // 角色卡：明顯的外框；照片填滿上半部（等比例裁切），名字和類型在下方自己的色帶裡，不會蓋到照片
     const cardW = 260;
-    const gap = 60;
+    const photoH = 290;
+    const bandH = 82;
+    const cardH = photoH + bandH;
+    const gap = 70;
     const total = ids.length * cardW + (ids.length - 1) * gap;
+    const y = 182;
     ids.forEach((id, k) => {
       const c = getChar(id);
       const x = SCREEN_W / 2 - total / 2 + k * (cardW + gap);
-      const y = 190;
-      g.fillStyle = 'rgba(0,0,0,0.35)';
-      roundRect(g, x, y, cardW, 330, 16);
-      g.fill();
+      // 卡片底和照片
+      g.save();
+      roundRect(g, x, y, cardW, cardH, 16);
+      g.clip();
+      g.fillStyle = '#14101f';
+      g.fillRect(x, y, cardW, cardH);
+      const pic = portraits[id];
+      if (pic?.complete && pic.naturalWidth) {
+        const sc = Math.max(cardW / pic.naturalWidth, photoH / pic.naturalHeight);
+        const sw = cardW / sc, sh = photoH / sc;
+        g.drawImage(pic, (pic.naturalWidth - sw) / 2, (pic.naturalHeight - sh) / 2, sw, sh, x, y, cardW, photoH);
+      } else {
+        g.fillStyle = c.color;
+        g.fillRect(x, y, cardW, photoH);
+      }
+      // 名字色帶
+      const band = g.createLinearGradient(0, y + photoH, 0, y + cardH);
+      band.addColorStop(0, 'rgba(20,16,31,0.96)');
+      band.addColorStop(1, 'rgba(10,8,18,0.98)');
+      g.fillStyle = band;
+      g.fillRect(x, y + photoH, cardW, bandH);
       g.fillStyle = c.color;
-      roundRect(g, x + cardW / 2 - 45, y + 40, 90, 180, 12);
-      g.fill();
+      g.fillRect(x, y + photoH, cardW, 4);
+      g.restore();
+      // 外框（角色代表色＋白色細線）
+      g.strokeStyle = c.color;
+      g.lineWidth = 5;
+      roundRect(g, x, y, cardW, cardH, 16);
+      g.stroke();
+      g.strokeStyle = 'rgba(255,255,255,0.75)';
+      g.lineWidth = 1.5;
+      roundRect(g, x + 4, y + 4, cardW - 8, cardH - 8, 13);
+      g.stroke();
+      // 名字、類型
+      g.textAlign = 'center';
       g.fillStyle = '#fff';
       g.font = `bold 28px ${FONT}`;
-      g.fillText(c.name, x + cardW / 2, y + 260);
-      g.font = `16px ${FONT}`;
-      g.fillText(id === 'sawa' ? '速度型｜愛心波動｜偶像演唱會' : '一般型｜鞭擊｜變身恐龍', x + cardW / 2, y + 292);
+      g.fillText(c.name, x + cardW / 2, y + photoH + 38);
+      g.font = `18px ${FONT}`;
+      g.fillStyle = '#e8e0ff';
+      g.fillText(SELECT_TAG[id] ?? '', x + cardW / 2, y + photoH + 66);
+      // 選擇中的玩家：外圈框線，P1／P2 標籤放在卡片上方（不蓋到照片和文字）
       for (const p of [0, 1] as const) {
         if (cursor[p] !== k) continue;
         g.strokeStyle = p === 0 ? '#ff5252' : '#448aff';
         g.lineWidth = 6;
-        const inset = p === 0 ? 0 : 10;
-        roundRect(g, x - 6 + inset, y - 6 + inset, cardW + 12 - inset * 2, 342 - inset * 2, 18);
+        const pad = p === 0 ? 12 : 20;
+        roundRect(g, x - pad, y - pad, cardW + pad * 2, cardH + pad * 2, 20);
         g.stroke();
         g.fillStyle = g.strokeStyle;
         g.font = `bold 22px ${FONT}`;
-        g.fillText(`${tags[p]}${ready[p] ? ' ✔' : ''}`, x + (p === 0 ? 40 : cardW - 40), y + 28);
+        g.textAlign = p === 0 ? 'left' : 'right';
+        g.fillText(`${tags[p]}${ready[p] ? ' ✔' : ''}`, p === 0 ? x - 10 : x + cardW + 10, y - 26);
+        g.textAlign = 'center';
       }
     });
     g.fillStyle = '#fff';
     g.font = `bold 22px ${FONT}`;
-    g.fillText(p2Label, SCREEN_W / 2, 580);
+    g.fillText(p2Label, SCREEN_W / 2, 600);
+    // 雙方都確定後的 3 秒倒數：畫面中間大數字，提示可以按 Esc 取消
+    if (countdown > 0) {
+      const n = Math.ceil(countdown);
+      const frac = countdown - Math.floor(countdown); // 每秒從 1 → 0，用來做數字縮放
+      g.fillStyle = 'rgba(0,0,0,0.45)';
+      g.fillRect(0, 0, SCREEN_W, SCREEN_H);
+      g.save();
+      g.translate(SCREEN_W / 2, SCREEN_H / 2 - 10);
+      const k = 1 + 0.35 * (frac === 0 ? 1 : frac);
+      g.scale(k, k);
+      g.font = `bold 150px ${FONT}`;
+      g.textAlign = 'center';
+      g.textBaseline = 'middle';
+      g.lineWidth = 12;
+      g.strokeStyle = '#2a0a3a';
+      g.strokeText(String(n), 0, 0);
+      g.fillStyle = '#fff59d';
+      g.fillText(String(n), 0, 0);
+      g.restore();
+      g.textBaseline = 'alphabetic';
+      g.font = `bold 26px ${FONT}`;
+      g.fillStyle = '#fff';
+      g.fillText('即將開始！想換角色請按 Esc 取消', SCREEN_W / 2, SCREEN_H / 2 + 110);
+    }
   }
 
   /** 連線等待等訊息畫面。 */

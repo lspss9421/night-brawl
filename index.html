@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Sawa × Mio 格鬥</title>
+    <title>夜鬥 NIGHT BRAWL</title>
     <!-- 對話框字型：Sawa 用圓體（jf 粉圓）、Mio 用手寫感的霞鶩文楷 -->
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
@@ -15,8 +15,9 @@
       .help { font-size: 13px; line-height: 1.7; text-align: center; opacity: 0.85; }
       kbd { background: #2c2440; border: 1px solid #4a3f66; border-radius: 4px; padding: 0 5px; font-family: inherit; }
       .stage { position: relative; }
-      .menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(20, 16, 31, 0.55); border-radius: 8px; }
+      .menu { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 14px; background: rgba(20, 16, 31, 0.3); border-radius: 8px; }
       .menu[hidden], .invite[hidden] { display: none; }
+      .menu label { color: #fff; text-shadow: 0 1px 2px #000, 0 0 6px #000, 0 0 10px rgba(0,0,0,0.8); }
       .menu h1 { margin: 0 0 10px; font-size: clamp(28px, 5vw, 56px); color: #fff; letter-spacing: 2px; text-shadow: 0 4px 0 #b71c4a; }
       .menu button, .invite button { font: inherit; font-size: 16px; padding: 10px 22px; border-radius: 10px; border: 2px solid #f06292; background: #2c2440; color: #fff; cursor: pointer; min-width: 260px; }
       .menu button:hover, .invite button:hover { background: #f06292; }
@@ -28,29 +29,73 @@
       .menu .version { position: absolute; right: 12px; bottom: 8px; font-size: 12px; color: #9a92b3; }
       .invite { position: absolute; left: 50%; bottom: 18%; transform: translateX(-50%); display: flex; gap: 8px; align-items: center; background: rgba(0,0,0,0.6); padding: 10px 14px; border-radius: 10px; color: #fff; }
       .invite input { width: 300px; }
+      .invite input.code { width: 80px; text-align: center; letter-spacing: 4px; font-weight: bold; }
+      .menu h1.logo { display: flex; flex-direction: column; align-items: center; line-height: 1; font-size: clamp(40px, 7vw, 84px); letter-spacing: 12px; text-indent: 12px; }
+      .menu h1.logo small { margin-top: 8px; font-size: 0.26em; letter-spacing: 0.5em; text-indent: 0.5em; color: #ff8fb8; text-shadow: 0 0 8px #f06292, 0 2px 0 #000; }
+      .menu h2 { margin: 0 0 6px; font-size: clamp(22px, 3.5vw, 40px); color: #fff; text-shadow: 0 3px 0 #b71c4a; }
+      .menu button.back { border-color: #6a5c8f; margin-top: 8px; }
       .invite button { min-width: 0; padding: 8px 14px; }
+      .settings { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 18px 24px; box-sizing: border-box; background: rgba(20, 16, 31, 0.94); border-radius: 8px; color: #fff; overflow: hidden; }
+      .settings[hidden] { display: none; }
+      .settings h2 { margin: 0; font-size: 28px; text-shadow: 0 3px 0 #b71c4a; }
+      .settings .tabs { display: flex; gap: 8px; }
+      .settings button { font: inherit; font-size: 15px; padding: 8px 18px; border-radius: 10px; border: 2px solid #f06292; background: #2c2440; color: #fff; cursor: pointer; }
+      .settings button:hover, .settings .tabs button.on { background: #f06292; }
+      .settings section { width: min(720px, 100%); flex: 1 1 auto; min-height: 0; overflow: auto; }
+      .settings > .row { flex: 0 0 auto; }
+      .settings section[hidden] { display: none; }
+      .settings .vol { display: grid; grid-template-columns: 110px 1fr 56px; align-items: center; gap: 12px; margin: 14px 0; font-size: 17px; }
+      .settings input[type=range] { width: 100%; accent-color: #f06292; }
+      .settings .row { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+      .settings table { width: 100%; border-collapse: collapse; font-size: 15px; }
+      .settings th, .settings td { padding: 2px 8px; text-align: center; }
+      .settings td:first-child { text-align: left; color: #ddd; }
+      .settings td button { min-width: 120px; padding: 2px 10px; font-size: 14px; border-width: 1px; border-color: #6a5c8f; }
+      .settings td button.wait { background: #ffd54f; color: #222; border-color: #ffd54f; }
+      .settings .hint { font-size: 13px; color: #b9b0d4; text-align: center; margin: 6px 0 0; }
     </style>
   </head>
   <body>
     <div class="stage">
       <canvas id="game"></canvas>
       <div id="menu" class="menu">
-        <h1>Sawa × Mio</h1>
-        <button id="btnLocal">本機對戰（同一台電腦／打假人）</button>
+        <h1 class="logo">夜鬥<small>NIGHT BRAWL</small></h1>
+        <button id="btnLocal">雙人對戰（同一台電腦）</button>
+        <button id="btnCpu">電腦</button>
         <button id="btnCreate">建立線上房間</button>
         <div class="row"><input id="roomCode" maxlength="4" placeholder="房號" autocomplete="off" /><button id="btnJoin">加入房間</button></div>
-        <label><input id="timeLimit" type="checkbox" /> 回合時間限制 99 秒（不勾 = 時間無限）</label>
+        <label class="dev-only"><input id="timeLimit" type="checkbox" /> 回合時間限制 99 秒（不勾 = 時間無限）</label>
+        <label class="dev-only"><input id="infiniteMeter" type="checkbox" checked /> 測試：能量一直是滿的（可以一直放必殺技，只有本機對戰）</label>
         <label>線上輸入延遲 <select id="delay"><option value="0">0 格</option><option value="1">1 格</option><option value="2" selected>2 格（建議）</option><option value="3">3 格</option><option value="4">4 格</option></select></label>
+        <button id="btnSettings">設定</button>
         <div id="menuError" class="error"></div>
         <div id="version" class="version"></div>
       </div>
-      <div id="invite" class="invite" hidden>邀請連結 <input id="inviteLink" readonly /><button id="btnCopy">複製</button></div>
+      <div id="cpuMenu" class="menu" hidden>
+        <h2>選擇對手</h2>
+        <button data-cpu="cpuEasy">簡單</button>
+        <button data-cpu="cpuNormal">普通</button>
+        <button data-cpu="cpuHard">困難</button>
+        <button data-cpu="stand">假人</button>
+        <button id="btnCpuBack" class="back">返回</button>
+      </div>
+      <div id="settings" class="settings" hidden>
+        <h2>設定</h2>
+        <div class="tabs"><button data-tab="sound" class="on">聲音</button><button data-tab="keys">操作按鍵</button></div>
+        <section id="tabSound">
+          <div class="vol"><span>背景音樂</span><input id="volBgm" type="range" min="0" max="100" /><span id="volBgmVal"></span></div>
+          <div class="vol"><span>音效</span><input id="volSfx" type="range" min="0" max="100" /><span id="volSfxVal"></span></div>
+          <div class="row"><button id="btnTestBgm">試聽對戰音樂</button><button id="btnTestSfx">試聽音效</button></div>
+        </section>
+        <section id="tabKeys" hidden>
+          <table><thead><tr><th>動作</th><th>玩家 1</th><th>玩家 2</th></tr></thead><tbody id="keyRows"></tbody></table>
+          <p class="hint">點一下要改的按鍵，再按下新的按鍵（Esc 取消）。如果新按鍵已經被別的動作用了，兩邊會自動對調。<br />線上對戰時，玩家 1 和玩家 2 的按鍵都能控制自己的角色。</p>
+        </section>
+        <div class="row"><button id="btnResetSettings">恢復預設</button><button id="btnCloseSettings">完成</button></div>
+      </div>
+      <div id="invite" class="invite" hidden>房號 <input id="inviteCode" class="code" readonly /><button id="btnCopyCode">複製房號</button>　邀請連結 <input id="inviteLink" readonly /><button id="btnCopy">複製連結</button></div>
     </div>
-    <div class="help">
-      <b>P1</b> <kbd>WASD</kbd> 移動 · <kbd>U</kbd>/<kbd>I</kbd> 輕/重拳 · <kbd>J</kbd>/<kbd>K</kbd> 輕/重腳 · <kbd>L</kbd> 特殊 · <kbd>L</kbd>+<kbd>K</kbd> 必殺 · <kbd>→</kbd>+<kbd>I</kbd>+<kbd>K</kbd> 投技 · <kbd>O</kbd> 鬥氣 · <kbd>T</kbd> 挑釁<br />
-      <b>P2</b> <kbd>方向鍵</kbd> 移動 · <kbd>P</kbd>/<kbd>[</kbd> 輕/重拳 · <kbd>;</kbd>/<kbd>'</kbd> 輕/重腳 · <kbd>]</kbd> 特殊 · <kbd>]</kbd>+<kbd>'</kbd> 必殺 · <kbd>/</kbd> 鬥氣 · <kbd>\</kbd> 挑釁<br />
-      按住「後」防禦、蹲著按住後 = 蹲防 · 按住鬥氣 = 檔架 · 防禦中按鬥氣 = 鬥氣反擊 · 被抓時按投技 = 拆投 · 連按兩下前/後 = 衝刺/後撤 · <kbd>F1</kbd> 判定框 · <kbd>F2</kbd> 切換玩家 2／假人 · <kbd>Esc</kbd> 返回
-    </div>
+    <div class="help" id="help"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
 </html>

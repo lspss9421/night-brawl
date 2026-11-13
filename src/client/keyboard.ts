@@ -35,14 +35,17 @@ export const P2_KEYS: KeyMap = {
 export class Keyboard {
   private down = new Set<string>();
   private pressedOnce = new Set<string>();
-  private gameKeys: Set<string>;
+  /** 設定畫面在等玩家按新按鍵時暫停，避免同時觸發遊戲 */
+  suspended = false;
 
-  constructor(maps: KeyMap[]) {
-    this.gameKeys = new Set(maps.flatMap((m) => Object.values(m).flat()));
+  constructor(private maps: KeyMap[]) {
     window.addEventListener('keydown', (e) => {
+      if (this.suspended) return;
       const t = e.target as HTMLElement | null;
       if (t && (t.tagName === 'INPUT' || t.tagName === 'SELECT' || t.tagName === 'TEXTAREA')) return; // 正在輸入房號等
-      if (this.gameKeys.has(e.code) || e.code === 'F1' || e.code === 'F2') e.preventDefault();
+      // 按鍵可以在設定裡改，所以每次都用目前的配置判斷
+      const isGameKey = this.maps.some((m) => Object.values(m).some((codes) => codes.includes(e.code)));
+      if (isGameKey || e.code === 'F1' || e.code === 'F2') e.preventDefault();
       if (!this.down.has(e.code)) this.pressedOnce.add(e.code);
       this.down.add(e.code);
     });

@@ -47,6 +47,8 @@ export interface MoveDef {
   projectile?: ProjectileDef;
   /** 多段攻擊：從 startup 開始每 interval 影格一段，共 count 段。 */
   multiHit?: { count: number; interval: number };
+  /** 特殊技要扣的鬥氣（預設 1 格 = DRIVE_BAR） */
+  driveCost?: number;
   fullScreen?: boolean;
   /** 從第 0 格起的無敵影格數。 */
   invuln?: number;
@@ -71,6 +73,8 @@ export interface FormStats {
   canDash: boolean;
   canCrouch: boolean;
   damagePct: number; // 100 = 1.0 倍
+  /** 受到的傷害倍率（100 = 正常；越低越耐打），沒設定就是 100 */
+  defensePct?: number;
   hurtStand: Box;
   hurtCrouch: Box;
   hurtAir: Box;
@@ -97,7 +101,8 @@ export interface CharacterDef {
   super: string; // 必殺技招式 id
   transform?: { duration: number; noMeterGain: boolean };
   moves: Record<string, MoveDef>;
-  texts: { intro: string; win: string; lose: string; taunt: string };
+  /** super：放必殺技時橫幅上的台詞（沒設定就顯示「角色名＋招式名」） */
+  texts: { intro: string; win: string; lose: string; taunt: string; super?: string };
   /** 由素材資料（data.json）產生：每組動畫每一格的受擊框（遊戲像素、以腳底為原點） */
   anims?: Record<string, AnimHurt>;
 }
@@ -207,6 +212,8 @@ export interface GameState {
   timer: number;
   /** false = 時間無限（測試用） */
   timeLimit: boolean;
+  /** 測試用：能量一直是滿的 */
+  infiniteMeter?: boolean;
   fighters: [FighterState, FighterState];
   projectiles: Projectile[];
   sparks: Spark[];

@@ -2,6 +2,7 @@
 import { CHARACTER_IDS } from '../core/characters';
 import { createGame } from '../core/game';
 import type { Keyboard } from '../client/keyboard';
+import { audio } from '../client/audio';
 import { P1_KEYS, P2_KEYS } from '../client/keyboard';
 import type { Renderer } from '../client/renderer';
 import { createLink, type Link } from './peer';
@@ -27,6 +28,8 @@ export class OnlineGame {
   private me: 0 | 1 = 0;
   private cursor: [number, number] = [0, Math.min(1, CHARACTER_IDS.length - 1)];
   private ready: [boolean, boolean] = [false, false];
+  /** 雙方都確定後的倒數（影格）；0 = 沒在倒數。數完由房主開打 */
+  countdown = 0;
   private session: RollbackSession | null = null;
   private matchId = 0;
   private chars: [string, string] = ['sawa', 'mio'];
@@ -96,7 +99,7 @@ export class OnlineGame {
     if (msg.k === 'pick') {
       this.cursor[them] = Math.max(0, Math.min(CHARACTER_IDS.length - 1, msg.cursor));
       this.ready[them] = msg.ready;
-      this.maybeStart();
+      this.updateCountdown();
     } else if (msg.k === 'start') {
       this.timeLimit = msg.timeLimit ?? false; // 以房主的設定為準
       this.startMatch(msg.id, msg.chars);
@@ -120,8 +123,26 @@ export class OnlineGame {
     this.link.sendCtrl({ k: 'pick', cursor: this.cursor[this.me], ready: this.ready[this.me] });
   }
 
+  /** 雙方都確定 → 開始 3 秒倒數；有人取消 → 停止倒數 */
+  private updateCountdown(): void {
+    if (this.status !== 'select') return;
+    if (this.ready[0] && this.ready[1]) { if (this.countdown === 0) this.countdown = 180; }
+    else this.countdown = 0;
+  }
+
+  /** 倒數中按 Esc：取消自己的確定（對方也會跟著停止倒數）。回傳是否有處理 */
+  cancelLock(): boolean {
+    if (this.status !== 'select' || this.countdown === 0) return false;
+    this.ready[this.me] = false;
+    this.countdown = 0;
+    audio.stopVoice();
+    audio.play('menu');
+    this.sendPick();
+    return true;
+  }
+
   private maybeStart(): void {
-    // 由房主決定開始，避免雙方各自開局
+    // 由房主決定開始，避免雙方各自開局；倒數結束才開
     if (this.me !== 0 || this.status !== 'select' || !this.ready[0] || !this.ready[1]) return;
     const chars: [string, string] = [CHARACTER_IDS[this.cursor[0]], CHARACTER_IDS[this.cursor[1]]];
     const id = this.matchId + 1;
@@ -147,6 +168,8 @@ export class OnlineGame {
     });
     for (const m of this.early.splice(0)) if (m.m === id) this.session.receive(m);
     this.status = 'match';
+    this.countdown = 0;
+    audio.stopVoice(); // 選角的語音不要延續到對戰
     this.lastHeard = performance.now();
     this.onChange();
   }
@@ -169,11 +192,21 @@ export class OnlineGame {
     const me = this.me;
     let changed = false;
     if (!this.ready[me]) {
-      if (kb.consumeAny(['KeyA', 'ArrowLeft'])) { this.cursor[me] = (this.cursor[me] + n - 1) % n; changed = true; }
-      if (kb.consumeAny(['KeyD', 'ArrowRight'])) { this.cursor[me] = (this.cursor[me] + 1) % n; changed = true; }
-      if (kb.consumeAny(['KeyU', 'Enter', ...P2_KEYS.LP])) { this.ready[me] = true; changed = true; }
-    } else if (kb.consumeAny(['KeyJ', ...P2_KEYS.LK])) { this.ready[me] = false; changed = true; }
-    if (changed) { this.sendPick(); this.maybeStart(); }
+      // 選角用玩家設定的按鍵（P1、P2 的按鍵都可以）
+      if (kb.consumeAny([...P1_KEYS.LEFT, ...P2_KEYS.LEFT])) { this.cursor[me] = (this.cursor[me] + n - 1) % n; changed = true; audio.play('menu'); }
+      if (kb.consumeAny([...P1_KEYS.RIGHT, ...P2_KEYS.RIGHT])) { this.cursor[me] = (this.cursor[me] + 1) % n; changed = true; audio.play('menu'); }
+      if (kb.consume('Enter')) { // 確定一律用 Enter
+        this.ready[me] = true; changed = true; audio.play('confirm');
+        if (CHARACTER_IDS[this.cursor[me]] === 'mio') audio.play('mio_select'); // 鎖定 Mio 播語音
+      }
+    } else if (kb.consumeAny([...P1_KEYS.LK, ...P2_KEYS.LK])) { this.ready[me] = false; changed = true; }
+    if (changed) { this.sendPick(); this.updateCountdown(); }
+    // 倒數：每秒嗶一聲，數完房主開打
+    if (this.countdown > 0) {
+      this.countdown--;
+      if (this.countdown % 60 === 0 && this.countdown > 0) audio.play('menu');
+      if (this.countdown === 0) { this.countdown = 1; this.maybeStart(); }
+    }
   }
 
   private updateMatch(kb: Keyboard): void {
@@ -183,7 +216,7 @@ export class OnlineGame {
     const oneWayFrames = this.rttMs / 2 / (1000 / 60);
     // 比對手快太多時偶爾停一格，讓雙方時間對齊（減少回滾）
     if (s.aheadOfRemote(oneWayFrames) && this.tick % 3 === 0) s.idle();
-    else s.advance(input);
+    else { s.advance(input); audio.onStep(s.state); }
     if (s.state.phase === 'matchEnd' && !this.rematch[this.me] && kb.consume('Enter')) {
       this.rematch[this.me] = true;
       this.link.sendCtrl({ k: 'rematch' });
@@ -202,8 +235,8 @@ export class OnlineGame {
         r.drawMessage([`房號 ${this.code ?? ''}`, '把房號或下方的邀請連結傳給朋友', '等待對手加入…']);
         break;
       case 'select':
-        r.drawSelect(CHARACTER_IDS, this.cursor, this.ready, this.ready[0] && this.ready[1] ? '開始！' : '雙方都按確定就開始',
-          'A / D 選擇、U 確定、J 取消　　Esc：離開房間', tags);
+        r.drawSelect(CHARACTER_IDS, this.cursor, this.ready, this.ready[0] && this.ready[1] ? '開始！' : '雙方都按 Enter 確定就開始',
+          '← / → 選擇、Enter 確定、輕腳取消　　Esc：離開房間', tags, this.countdown / 60);
         break;
       case 'match': {
         const s = this.session!;

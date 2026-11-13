@@ -1,6 +1,9 @@
 import type { CharacterDef } from '../types';
 import { commonMoves, move, toRecord } from './common';
 
+/** 1 格鬥氣（和 game.ts 的 DRIVE_BAR 相同；角色檔不能反過來 import game.ts） */
+const DRIVE_BAR_UNITS = 10000;
+
 // Mio：一般型，數值都是標準值。特殊技鞭擊距離長；必殺技變身恐龍 10 秒。
 // 數值見 docs/characters/mio/mio.md
 const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', 'sp', 'super'];
@@ -43,19 +46,20 @@ export const mio: CharacterDef = {
       jumpH: 380,
       canDash: false,
       canCrouch: false,
-      damagePct: 130,
+      damagePct: 150, // 攻擊力 1.5 倍
+      defensePct: 75, // 受到的傷害只有 75%
       hurtStand: { x: -45, y: 0, w: 90, h: 185 },
       hurtCrouch: { x: -45, y: 0, w: 90, h: 185 },
       hurtAir: { x: -42, y: 20, w: 84, h: 150 },
       pushWidth: 80,
       moves: {
-        sLP: 'dLight', sLK: 'dLight', sHP: 'dHeavy', sHK: 'dHeavy',
-        sp: 'dTail',
+        sLP: 'dLP', sHP: 'dHP', sLK: 'dLK', sHK: 'dHK',
+        sp: 'dBreath',
       },
     },
   },
   super: 'super',
-  transform: { duration: 600, noMeterGain: true },
+  transform: { duration: 1200, noMeterGain: true }, // 變身 20 秒
   moves: {
     ...commonMoves(),
     ...toRecord([
@@ -75,20 +79,29 @@ export const mio: CharacterDef = {
       move({
         id: 'sp', name: '鞭擊', kind: 'special', startup: 14, active: 4, recovery: 24,
         damage: 90, hitstun: 22, blockstun: 16, hitstop: 10, pushback: 900,
+        driveCost: 2 * DRIVE_BAR_UNITS, // 用一次扣 2 格鬥氣
         // 鞭尖最遠打到 280 像素，約站重腳（135）的 2 倍
         hitbox: { x: 40, y: 115, w: 240, h: 30 },
       }),
       move({
-        id: 'super', name: '變身恐龍', kind: 'transform', startup: 40, active: 0, recovery: 10,
-        invuln: 50, superFreeze: 40, meterGain: 0,
+        // 戴上帽子 → 邪惡力量爆發（64 格後變身）→ 奶龍朝天怒吼 → 備戰；整段無敵
+        id: 'super', name: '變身奶龍', kind: 'transform', startup: 64, active: 0, recovery: 60,
+        invuln: 124, superFreeze: 80, meterGain: 0, // 橫幅停留 80 格（約 1.3 秒）
       }),
       // 挑釁：轉身搖尾巴兩輪，動畫比共用的長（130 格）
       move({ id: 'taunt', name: '挑釁', kind: 'taunt', startup: 0, active: 0, recovery: 130 }),
-      // 恐龍形態（精簡招式組）
-      move({ id: 'dLight', name: '小爪拍', startup: 6, active: 3, recovery: 10, damage: 40, hitstun: 14, blockstun: 10, hitstop: 7, hitbox: { x: 35, y: 80, w: 70, h: 40 }, cancel: ['dHeavy', 'dTail'] }),
-      move({ id: 'dHeavy', name: '肚子撞', startup: 12, active: 4, recovery: 20, damage: 90, hitstun: 22, blockstun: 16, hitstop: 11, pushback: 1100, advance: 500, hitbox: { x: 30, y: 30, w: 80, h: 110 }, cancel: ['dTail'] }),
-      move({ id: 'dTail', name: '尾巴橫掃', kind: 'special', startup: 14, active: 4, recovery: 22, damage: 80, hitstun: 20, blockstun: 15, hitstop: 10, pushback: 900, knockdown: true, hitbox: { x: 40, y: 20, w: 170, h: 40 } }),
+      // 恐龍形態（奶龍）：輕重拳腳各不同，特殊技是龍之吐息
+      move({ id: 'dLP', name: '奶龍拳', startup: 6, active: 3, recovery: 10, damage: 40, hitstun: 14, blockstun: 10, hitstop: 7, hitbox: { x: 30, y: 110, w: 80, h: 40 }, cancel: ['dHP', 'dLK', 'dHK', 'dBreath'] }),
+      move({ id: 'dHP', name: '雙拳重擊', startup: 17, active: 5, recovery: 26, damage: 95, hitstun: 22, blockstun: 16, hitstop: 12, pushback: 1000, hitbox: { x: 30, y: 60, w: 100, h: 140 }, cancel: ['dBreath'] }),
+      move({ id: 'dLK', name: '肚子撞', startup: 9, active: 4, recovery: 14, damage: 60, hitstun: 18, blockstun: 12, hitstop: 9, pushback: 900, advance: 300, hitbox: { x: 30, y: 30, w: 90, h: 110 }, cancel: ['dHP', 'dHK', 'dBreath'] }),
+      move({ id: 'dHK', name: '尾巴橫掃', startup: 18, active: 5, recovery: 28, damage: 85, hitstun: 20, blockstun: 15, hitstop: 10, pushback: 900, knockdown: true,
+        // 尾巴從身體前面一路掃到尾端（動畫上只有尾端伸出去，近身的對手也要掃得到）
+        codeHitbox: true, hitbox: { x: 30, y: 10, w: 150, h: 42 }, cancel: ['dBreath'] }),
+      move({ id: 'dBreath', name: '龍之吐息', kind: 'special', startup: 18, active: 24, recovery: 24, damage: 30, hitstun: 16, blockstun: 12, hitstop: 4, pushback: 300,
+        // 從嘴巴往前噴火，連打 4 下；用一次扣 3 格鬥氣
+        multiHit: { count: 4, interval: 6 }, driveCost: 3 * DRIVE_BAR_UNITS,
+        codeHitbox: true, hitbox: { x: 60, y: 110, w: 250, h: 70 } }),
     ]),
   },
-  texts: { intro: '好累喔～不想動', win: 'Ya～', lose: '嗚…我輸了…', taunt: '打我呀！笨蛋～♪' },
+  texts: { intro: '好累喔～不想動', win: 'Ya～', lose: '嗚…我輸了…', taunt: '打我呀！笨蛋～♪', super: '我是奶龍公主～！！' },
 };

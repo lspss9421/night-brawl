@@ -60,7 +60,7 @@ const GROUP_ORDER = ['基本', '移動', '一般技', '特殊技', '必殺技', 
 
 const SUGGESTED: Record<string, number> = {
   sLP: 4, sHP: 6, sLK: 4, sHK: 6, cLP: 4, cHP: 6, cLK: 4, cHK: 6, jLP: 4, jHP: 4, jLK: 4, jHK: 4,
-  throwWhiff: 3, taunt: 6, dLight: 4, dHeavy: 6, dTail: 6, reversal: 6,
+  throwWhiff: 3, taunt: 6, dLP: 5, dHP: 6, dLK: 6, dHK: 7, dBreath: 7, reversal: 6,
 };
 
 export function animSlots(c: CharacterDef): AnimSlot[] {

@@ -1,6 +1,9 @@
 import type { CharacterDef } from '../types';
 import { commonMoves, move, toRecord } from './common';
 
+/** 1 格鬥氣（和 game.ts 的 DRIVE_BAR 相同） */
+const DRIVE_BAR_UNITS = 10000;
+
 // 佐波 Sawa：速度型。出招快、移動快、距離短、血少。數值見 docs/characters/sawa/sawa.md
 const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', 'sp', 'super'];
 const HEAVY_CANCEL = ['sp', 'super'];
@@ -55,15 +58,17 @@ export const sawa: CharacterDef = {
       move({
         id: 'sp', name: '愛心波動', kind: 'special', startup: 13, active: 1, recovery: 26,
         damage: 60, hitstun: 18, blockstun: 12, hitstop: 8, pushback: 600,
+        driveCost: 2 * DRIVE_BAR_UNITS, // 用一次扣 2 格鬥氣
         projectile: { spawnFrame: 13, speed: 800, box: { x: -24, y: -24, w: 48, h: 48 }, spawnX: 60, spawnY: 125 },
       }),
       move({
-        id: 'super', name: '偶像演唱會', kind: 'super', startup: 20, active: 60, recovery: 30,
+        // 聚光燈打在 Sawa 身上 → 拿起麥克風開唱（發生 30 格是燈光亮起的時間）
+        id: 'super', name: '偶像演唱會', kind: 'super', startup: 30, active: 60, recovery: 30,
         damage: 55, hitstun: 30, blockstun: 14, hitstop: 4, pushback: 0,
         fullScreen: true, multiHit: { count: 5, interval: 12 }, knockdown: true,
-        invuln: 80, superFreeze: 40, meterGain: 0,
+        invuln: 90, superFreeze: 80, meterGain: 0, // 橫幅停留 80 格，和 Mio 一樣
       }),
     ]),
   },
-  texts: { intro: '來吧！戰鬥吧！', win: 'Ya～', lose: '嗚…我輸了…', taunt: '67～' },
+  texts: { intro: '來吧！戰鬥吧！', win: 'Ya～', lose: '嗚…我輸了…', taunt: '67～', super: '來聽我唱歌吧！' },
 };
