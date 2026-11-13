@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { cloneState, createGame, DRIVE_BAR, DRIVE_MAX, METER_MAX, step } from '../src/core/game';
+import { BACKDASH_COOLDOWN, cloneState, createGame, DRIVE_BAR, DRIVE_MAX, METER_MAX, moveHitbox, step } from '../src/core/game';
+import { getChar } from '../src/core/characters';
 import { Btn } from '../src/core/input';
 import type { GameState } from '../src/core/types';
 import { FP } from '../src/core/types';
@@ -169,6 +170,19 @@ describe('基本攻防', () => {
     step(s, [0, 0]);
     step(s, [RIGHT, 0]);
     expect(s.fighters[0].action).toBe('dashF');
+  });
+
+  it('後撤完要等一下才能再後撤', () => {
+    const s = ready('sawa', 'mio', 600, 900);
+    const backdash = () => { step(s, [LEFT, 0]); step(s, [0, 0]); step(s, [LEFT, 0]); };
+    backdash();
+    expect(s.fighters[0].action).toBe('dashB');
+    while (s.fighters[0].action === 'dashB') step(s, [0, 0]);
+    backdash(); // 剛結束馬上再按：冷卻中，不會後撤
+    expect(s.fighters[0].action).not.toBe('dashB');
+    run(s, BACKDASH_COOLDOWN);
+    backdash();
+    expect(s.fighters[0].action).toBe('dashB');
   });
 
   it('空中按特殊技不會讓角色卡在空中（兩位角色）', () => {
@@ -490,3 +504,23 @@ describe('回合流程', () => {
 });
 
 void LEFT;
+
+describe('攻擊範圍', () => {
+  it('基本攻擊的攻擊框往前延伸，特殊技不變', async () => {
+    const { NORMAL_REACH_BONUS } = await import('../src/core/game');
+    const c = getChar('sawa');
+    expect(moveHitbox(c.moves.sLP)!.w).toBe(c.moves.sLP.hitbox!.w + NORMAL_REACH_BONUS);
+    expect(moveHitbox(c.moves.jHK)!.w).toBe(c.moves.jHK.hitbox!.w + NORMAL_REACH_BONUS);
+    expect(moveHitbox(getChar('mio').moves.sp)).toEqual(getChar('mio').moves.sp.hitbox);
+  });
+
+  it('蹲重拳的攻擊框在蹲姿身體前緣的上方', () => {
+    for (const id of ['sawa', 'mio']) {
+      const c = getChar(id);
+      const hb = c.moves.cHP.hitbox!;
+      const body = c.forms.normal.hurtCrouch;
+      expect(hb.x, id).toBeGreaterThanOrEqual(body.x + body.w - 20);
+      expect(hb.y + hb.h, id).toBeGreaterThan(body.y + body.h);
+    }
+  });
+});

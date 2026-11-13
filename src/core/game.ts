@@ -26,6 +26,8 @@ const BUFFER_FRAMES = 5;
 const DASH_WINDOW = 12;
 const JUMPSQUAT = 4;
 const LANDING = 4;
+/** 後撤結束後要再等幾格才能再後撤（不能一直連續後撤） */
+export const BACKDASH_COOLDOWN = 15;
 const KNOCKDOWN_FRAMES = 30;
 const GETUP_FRAMES = 22;
 const THROW_RANGE = 110 * FP;
@@ -110,6 +112,7 @@ function newFighter(charId: string, side: 0 | 1, wins: number): FighterState {
     burnout: false,
     throwPunish: false,
     landDamage: 0,
+    backdashCd: 0,
   };
 }
 
@@ -224,12 +227,23 @@ export function hurtboxes(f: FighterState, s?: GameState): Box[] {
   return boxes;
 }
 
+/** 基本攻擊（站／蹲／空中 輕重拳腳）的攻擊框往前多延伸的距離（遊戲像素） */
+export const NORMAL_REACH_BONUS = 25;
+const NORMAL_IDS = /^[scj](LP|HP|LK|HK)$/;
+
+/** 招式實際使用的攻擊框（角色座標，已加上基本攻擊的延伸距離） */
+export function moveHitbox(m: MoveDef): Box | undefined {
+  if (!m.hitbox) return undefined;
+  return NORMAL_IDS.test(m.id) ? { ...m.hitbox, w: m.hitbox.w + NORMAL_REACH_BONUS } : m.hitbox;
+}
+
 /** 目前有效的攻擊判定（世界座標）；全畫面攻擊回傳整個舞台。 */
 export function activeHitbox(f: FighterState): Box | null {
   const m = currentMove(f);
   if (!m || movePhase(f) !== 'active') return null;
   if (m.fullScreen) return { x: 0, y: 0, w: SCREEN_W * FP, h: SCREEN_H * FP };
-  return m.hitbox ? toWorld(f, m.hitbox) : null;
+  const hb = moveHitbox(m);
+  return hb ? toWorld(f, hb) : null;
 }
 
 function overlap(a: Box, b: Box): boolean {
@@ -362,6 +376,7 @@ function updateFighter(s: GameState, i: 0 | 1, input: InputBits): void {
   const st = formStats(f);
 
   if (f.invuln > 0) f.invuln--;
+  if (f.backdashCd > 0) f.backdashCd--;
   f.frame++;
 
   // 鬥氣隨時間回復（防禦、受擊、檔架中不回復）
@@ -410,7 +425,7 @@ function updateFighter(s: GameState, i: 0 | 1, input: InputBits): void {
       break;
     case 'dashB':
       f.x -= c.backdash.speed * f.facing;
-      if (f.frame >= c.backdash.frames) setAction(f, 'idle');
+      if (f.frame >= c.backdash.frames) { setAction(f, 'idle'); f.backdashCd = BACKDASH_COOLDOWN; }
       break;
     case 'attack':
       updateAttack(s, i, input, c, st);
@@ -508,6 +523,7 @@ function groundNeutral(s: GameState, i: 0 | 1, input: InputBits, c: CharacterDef
     setAction(f, 'jumpSquat');
     return;
   }
+  if (f.dashReq === -1 && f.backdashCd > 0) f.dashReq = 0; // 後撤冷卻中：不能連續後撤
   if (f.dashReq !== 0 && st.canDash) {
     const back = f.dashReq === -1;
     f.dashReq = 0;

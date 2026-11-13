@@ -58,6 +58,8 @@ export interface MoveDef {
   launch?: { vx: number; vy: number };
   /** 打不死人（對手最少留 1 滴血），例如鬥氣反擊 */
   nonLethal?: boolean;
+  /** 攻擊範圍固定用程式設定的，不套用動畫畫出來的紅框 */
+  codeHitbox?: boolean;
 }
 
 export interface FormStats {
@@ -175,6 +177,8 @@ export interface FighterState {
   throwPunish: boolean;
   /** 被投出去後，落地時才扣的傷害 */
   landDamage: number;
+  /** 後撤結束後的冷卻（影格），歸零前不能再後撤 */
+  backdashCd: number;
 }
 
 export interface Projectile {

@@ -37,6 +37,85 @@ export interface RenderOptions {
   p2Label: string;
 }
 
+// 對戰場景：西門町（只用在對戰畫面；讀不到圖時改畫原本的漸層背景）
+const stageImage = new Image();
+stageImage.src = `${import.meta.env.BASE_URL}assets/stages/ximending.webp`;
+
+// 介面框美術（血量／鬥氣／能量）：圖和中間空格的位置（圖片座標）
+interface HudPart { name: string; w: number; h: number; slots: Box[] }
+interface HudArt { hp: HudPart; drive: HudPart; meter: HudPart }
+let hudArt: HudArt | null = null;
+const hudImages: Record<string, HTMLImageElement> = {};
+void fetch(`${import.meta.env.BASE_URL}assets/ui/hud.json`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((j: HudArt | null) => {
+    if (!j) return;
+    for (const part of [j.hp, j.drive, j.meter]) {
+      const im = new Image();
+      im.src = `${import.meta.env.BASE_URL}assets/ui/${part.name}.png`;
+      hudImages[part.name] = im;
+    }
+    hudArt = j;
+  })
+  .catch(() => {});
+const hudReady = (): HudArt | null =>
+  hudArt && Object.values(hudImages).every((im) => im.complete && im.naturalWidth > 0) ? hudArt : null;
+
+// 對話框美術：每個角色開場（含勝負台詞）和挑釁各一款，文字樣式也不同
+interface BubblePart { name: string; w: number; h: number; text: Box; tail: { x: number; y: number } }
+interface BubbleStyle { intro: string; taunt: string; font: string; draw: (g: CanvasRenderingContext2D, text: string, x: number, y: number) => void }
+const BUBBLE_STYLE: Record<string, BubbleStyle> = {
+  sawa: {
+    intro: 'bubble_sawa_2',
+    taunt: 'bubble_sawa_1',
+    font: `26px Huninn, ${FONT}`,
+    draw(g, text, x, y) {
+      // 可愛：粉紅漸層字 + 白色外框
+      g.lineJoin = 'round';
+      g.strokeStyle = '#fff';
+      g.lineWidth = 7;
+      g.strokeText(text, x, y);
+      const gr = g.createLinearGradient(0, y - 13, 0, y + 13);
+      gr.addColorStop(0, '#ff5fa2');
+      gr.addColorStop(1, '#e0115f');
+      g.fillStyle = gr;
+      g.fillText(text, x, y);
+    },
+  },
+  mio: {
+    intro: 'bubble_mio_2',
+    taunt: 'bubble_mio_1',
+    font: `24px "LXGW WenKai TC", ${FONT}`,
+    draw(g, text, x, y) {
+      // 慵懶：淡紫灰手寫字，稍微歪一邊
+      g.save();
+      g.translate(x, y);
+      g.rotate(-0.04);
+      g.fillStyle = '#7b6b98';
+      g.fillText(text, 0, 0);
+      g.restore();
+    },
+  },
+};
+const bubbleParts: Record<string, BubblePart> = {};
+const bubbleImages: Record<string, HTMLImageElement> = {};
+void fetch(`${import.meta.env.BASE_URL}assets/ui/bubbles.json`)
+  .then((r) => (r.ok ? r.json() : null))
+  .then((j: Record<string, BubblePart[]> | null) => {
+    if (!j) return;
+    const used = new Set(Object.values(BUBBLE_STYLE).flatMap((b) => [b.intro, b.taunt]));
+    for (const part of Object.values(j).flat()) {
+      if (!used.has(part.name)) continue;
+      bubbleParts[part.name] = part;
+      const im = new Image();
+      im.src = `${import.meta.env.BASE_URL}assets/ui/${part.name}.png`;
+      bubbleImages[part.name] = im;
+    }
+  })
+  .catch(() => {});
+// 先把字型載好，畫布才會用到（載不到就用預設字型）
+for (const b of Object.values(BUBBLE_STYLE)) void document.fonts?.load(b.font).catch(() => {});
+
 export class Renderer {
   private ctx: CanvasRenderingContext2D;
 
@@ -61,7 +140,7 @@ export class Renderer {
       const k = s.shake.mag * Math.min(1, s.shake.timer / 8);
       g.translate((s.frame % 2 ? 1 : -1) * k, (s.frame % 3 === 0 ? 1 : -1) * k * 0.6);
     }
-    this.drawStage();
+    this.drawStage(true);
     for (const f of s.fighters) this.drawFighter(s, f, opt.showBoxes);
     this.drawSuperEffects(s);
     for (const p of s.projectiles) this.drawProjectile(s, p);
@@ -92,26 +171,40 @@ export class Renderer {
       ];
       const x = i === 0 ? 40 : SCREEN_W - 40 - 380;
       g.fillStyle = 'rgba(0,0,0,0.6)';
-      g.fillRect(x, 108, 380, 64);
+      g.fillRect(x, 166, 380, 64);
       g.font = `13px ${FONT}`;
       g.textAlign = 'left';
       g.fillStyle = '#e0ffe0';
-      lines.forEach((t, k) => g.fillText(t, x + 8, 126 + k * 18));
+      lines.forEach((t, k) => g.fillText(t, x + 8, 184 + k * 18));
     }
     const adv = s.lastAdv;
     const info = `頓幀 ${s.hitstop}　${adv ? `上一擊：${adv.side === 0 ? 'P1' : 'P2'} ${adv.move} ${adv.blocked ? '被防' : '命中'} ${adv.value >= 0 ? '+' : ''}${adv.value} 格` : ''}`;
     g.fillStyle = 'rgba(0,0,0,0.6)';
     g.font = `13px ${FONT}`;
     const w = g.measureText(info).width + 20;
-    g.fillRect(SCREEN_W / 2 - w / 2, 92, w, 22);
+    g.fillRect(SCREEN_W / 2 - w / 2, 136, w, 22);
     g.textAlign = 'center';
     g.fillStyle = '#fff59d';
-    g.fillText(info, SCREEN_W / 2, 108);
+    g.fillText(info, SCREEN_W / 2, 152);
     g.textAlign = 'left';
   }
 
-  private drawStage(): void {
+  /** battle = true：對戰畫面用西門町背景；其他畫面（主選單、選角、訊息）先用漸層 */
+  private drawStage(battle = false): void {
     const g = this.ctx;
+    if (battle && stageImage.complete && stageImage.naturalWidth > 0) {
+      // 背景圖：等比例放大蓋滿整個畫面（置中裁切）
+      const k = Math.max(SCREEN_W / stageImage.naturalWidth, SCREEN_H / stageImage.naturalHeight);
+      const w = stageImage.naturalWidth * k, h = stageImage.naturalHeight * k;
+      g.drawImage(stageImage, (SCREEN_W - w) / 2, (SCREEN_H - h) / 2, w, h);
+      // 上方稍微壓暗，讓血條和文字看得清楚
+      const shade = g.createLinearGradient(0, 0, 0, 240);
+      shade.addColorStop(0, 'rgba(0,0,0,0.45)');
+      shade.addColorStop(1, 'rgba(0,0,0,0)');
+      g.fillStyle = shade;
+      g.fillRect(0, 0, SCREEN_W, 240);
+      return;
+    }
     const sky = g.createLinearGradient(0, 0, 0, GROUND_Y);
     sky.addColorStop(0, '#2b2350');
     sky.addColorStop(1, '#6b4f8f');
@@ -432,6 +525,7 @@ export class Renderer {
 
   private drawBubble(f: FighterState): void {
     if (!f.bubble) return;
+    if (this.drawArtBubble(f)) return;
     const g = this.ctx;
     const st = formStats(f);
     const cx = this.sx(f.x);
@@ -456,6 +550,32 @@ export class Renderer {
     g.textAlign = 'center';
     g.fillStyle = '#333';
     g.fillText(f.bubble.text, bx + bw / 2, by + 30);
+  }
+
+  /** 有對話框美術時：依角色和台詞種類（挑釁／其他）選框，尾巴尖端對準頭頂。回傳是否已畫。 */
+  private drawArtBubble(f: FighterState): boolean {
+    const style = BUBBLE_STYLE[f.charId];
+    const bubble = f.bubble;
+    if (!style || !bubble) return false;
+    const c = getChar(f.charId);
+    const part = bubbleParts[bubble.text === c.texts.taunt ? style.taunt : style.intro];
+    const im = part && bubbleImages[part.name];
+    if (!part || !im?.complete || !im.naturalWidth) return false;
+    const g = this.ctx;
+    g.font = style.font;
+    g.textAlign = 'center';
+    g.textBaseline = 'middle';
+    // 字太長就把整個框等比例放大
+    const k = Math.max(0.85, Math.min(1.6, (g.measureText(bubble.text).width + 16) / part.text.w));
+    const w = part.w * k, h = part.h * k;
+    const st = formStats(f);
+    const headY = this.sy(f.y + st.hurtStand.h * FP) - 6;
+    const bx = Math.min(SCREEN_W - w - 4, Math.max(4, this.sx(f.x) - part.tail.x * k));
+    const by = Math.max(70, headY - part.tail.y * k);
+    g.drawImage(im, bx, by, w, h);
+    style.draw(g, bubble.text, bx + (part.text.x + part.text.w / 2) * k, by + (part.text.y + part.text.h / 2) * k);
+    g.textBaseline = 'alphabetic';
+    return true;
   }
 
   private drawSuperFreeze(s: GameState): void {
@@ -485,68 +605,72 @@ export class Renderer {
       const c = getChar(f.charId);
       const left = i === 0;
       const x = left ? 40 : SCREEN_W - 40 - barW;
-      // 血條
-      g.fillStyle = '#222';
-      g.fillRect(x, 30, barW, 26);
-      const ratio = f.hp / c.maxHp;
-      g.fillStyle = ratio > 0.3 ? '#4caf50' : '#ff7043';
-      const hw = barW * ratio;
-      g.fillRect(left ? x + barW - hw : x, 30, hw, 26);
-      g.strokeStyle = '#fff';
-      g.lineWidth = 2;
-      g.strokeRect(x, 30, barW, 26);
-      // 鬥氣槽（6 格，綠色；燃盡時灰色閃爍）
-      const dx0 = left ? x : x + barW - 300;
-      const segW = 300 / 6;
-      for (let k = 0; k < 6; k++) {
-        const sx = left ? dx0 + 300 - (k + 1) * segW : dx0 + k * segW;
-        g.fillStyle = '#1b1b1b';
-        g.fillRect(sx + 2, 60, segW - 4, 9);
-        const fill = Math.max(0, Math.min(1, (f.drive - k * DRIVE_BAR) / DRIVE_BAR));
-        if (fill > 0) {
-          g.fillStyle = f.burnout ? (Math.floor(s.frame / 10) % 2 ? '#777' : '#555') : fill >= 1 ? '#69f0ae' : '#2e9d6a';
-          const fw = (segW - 4) * fill;
-          g.fillRect(left ? sx + 2 + (segW - 4) - fw : sx + 2, 60, fw, 9);
+      const art = hudReady();
+      if (art) this.drawFighterHud(s, opt, f, i, art);
+      else {
+        // 血條
+        g.fillStyle = '#222';
+        g.fillRect(x, 30, barW, 26);
+        const ratio = f.hp / c.maxHp;
+        g.fillStyle = ratio > 0.3 ? '#4caf50' : '#ff7043';
+        const hw = barW * ratio;
+        g.fillRect(left ? x + barW - hw : x, 30, hw, 26);
+        g.strokeStyle = '#fff';
+        g.lineWidth = 2;
+        g.strokeRect(x, 30, barW, 26);
+        // 鬥氣槽（6 格，綠色；燃盡時灰色閃爍）
+        const dx0 = left ? x : x + barW - 300;
+        const segW = 300 / 6;
+        for (let k = 0; k < 6; k++) {
+          const sx = left ? dx0 + 300 - (k + 1) * segW : dx0 + k * segW;
+          g.fillStyle = '#1b1b1b';
+          g.fillRect(sx + 2, 60, segW - 4, 9);
+          const fill = Math.max(0, Math.min(1, (f.drive - k * DRIVE_BAR) / DRIVE_BAR));
+          if (fill > 0) {
+            g.fillStyle = f.burnout ? (Math.floor(s.frame / 10) % 2 ? '#777' : '#555') : fill >= 1 ? '#69f0ae' : '#2e9d6a';
+            const fw = (segW - 4) * fill;
+            g.fillRect(left ? sx + 2 + (segW - 4) - fw : sx + 2, 60, fw, 9);
+          }
         }
-      }
-      if (f.burnout) {
-        g.font = `bold 13px ${FONT}`;
-        g.fillStyle = Math.floor(s.frame / 10) % 2 ? '#ff8a80' : '#fff';
+        if (f.burnout) {
+          g.font = `bold 13px ${FONT}`;
+          g.fillStyle = Math.floor(s.frame / 10) % 2 ? '#ff8a80' : '#fff';
+          g.textAlign = left ? 'left' : 'right';
+          g.fillText('燃盡', left ? dx0 + 306 : dx0 - 6, 69);
+        }
+        // 名字 + 回合勝場
+        g.font = `bold 20px ${FONT}`;
+        g.fillStyle = '#fff';
         g.textAlign = left ? 'left' : 'right';
-        g.fillText('燃盡', left ? dx0 + 306 : dx0 - 6, 69);
-      }
-      // 名字 + 回合勝場
-      g.font = `bold 20px ${FONT}`;
-      g.fillStyle = '#fff';
-      g.textAlign = left ? 'left' : 'right';
-      const label = i === 1 && opt.p2Label ? `${c.name}（${opt.p2Label}）` : c.name;
-      g.fillText(label, left ? x : x + barW, 96);
-      for (let k = 0; k < WINS_TO_MATCH; k++) {
-        const dx = left ? x + barW - 14 - k * 24 : x + 14 + k * 24;
-        g.beginPath();
-        g.arc(dx, 72, 8, 0, Math.PI * 2);
-        g.fillStyle = k < f.wins ? '#ffd54f' : '#444';
-        g.fill();
-      }
-      // 能量條
-      const mw = 300;
-      const mx = left ? 40 : SCREEN_W - 40 - mw;
-      g.fillStyle = '#222';
-      g.fillRect(mx, 676, mw, 18);
-      const full = f.meter >= METER_MAX;
-      g.fillStyle = full ? (Math.floor(s.frame / 6) % 2 ? '#40c4ff' : '#e1f5fe') : '#29b6f6';
-      g.fillRect(mx, 676, (mw * f.meter) / METER_MAX, 18);
-      g.strokeStyle = '#fff';
-      g.strokeRect(mx, 676, mw, 18);
-      g.font = `bold 16px ${FONT}`;
-      g.fillStyle = '#fff';
-      g.textAlign = left ? 'left' : 'right';
-      g.fillText(full ? '必殺技 OK！（L+K）' : '能量', left ? mx : mx + mw, 668);
-      // 變身倒數
-      if (f.form === 'dino') {
-        g.fillStyle = '#ffca28';
+        const label = i === 1 && opt.p2Label ? `${c.name}（${opt.p2Label}）` : c.name;
+        g.fillText(label, left ? x : x + barW, 96);
+        for (let k = 0; k < WINS_TO_MATCH; k++) {
+          const dx = left ? x + barW - 14 - k * 24 : x + 14 + k * 24;
+          g.beginPath();
+          g.arc(dx, 72, 8, 0, Math.PI * 2);
+          g.fillStyle = k < f.wins ? '#ffd54f' : '#444';
+          g.fill();
+        }
+        // 能量條
+        const mw = 300;
+        const mx = left ? 40 : SCREEN_W - 40 - mw;
+        g.fillStyle = '#222';
+        g.fillRect(mx, 676, mw, 18);
+        const full = f.meter >= METER_MAX;
+        g.fillStyle = full ? (Math.floor(s.frame / 6) % 2 ? '#40c4ff' : '#e1f5fe') : '#29b6f6';
+        g.fillRect(mx, 676, (mw * f.meter) / METER_MAX, 18);
+        g.strokeStyle = '#fff';
+        g.strokeRect(mx, 676, mw, 18);
+        g.font = `bold 16px ${FONT}`;
+        g.fillStyle = '#fff';
         g.textAlign = left ? 'left' : 'right';
-        g.fillText(`恐龍形態 ${Math.ceil(f.formTimer / 60)} 秒`, left ? mx + mw + 16 : mx - 16, 691);
+        g.fillText(full ? '必殺技 OK！（L+K）' : '能量', left ? mx : mx + mw, 668);
+        // 變身倒數
+        if (f.form === 'dino') {
+          g.fillStyle = '#ffca28';
+          g.textAlign = left ? 'left' : 'right';
+          g.fillText(`恐龍形態 ${Math.ceil(f.formTimer / 60)} 秒`, left ? mx + mw + 16 : mx - 16, 691);
+        }
       }
       // 連段數（顯示在攻擊方）
       const foe = s.fighters[1 - i];
@@ -557,8 +681,8 @@ export class Renderer {
         g.lineWidth = 5;
         g.textAlign = left ? 'left' : 'right';
         const t = `${foe.comboHits} HITS`;
-        g.strokeText(t, left ? 40 : SCREEN_W - 40, 215);
-        g.fillText(t, left ? 40 : SCREEN_W - 40, 215);
+        g.strokeText(t, left ? 40 : SCREEN_W - 40, 275);
+        g.fillText(t, left ? 40 : SCREEN_W - 40, 275);
       }
     }
     // 計時
@@ -567,6 +691,104 @@ export class Renderer {
     g.fillStyle = '#fff';
     const sec = Math.ceil(Math.max(0, s.timer) / 60);
     g.fillText(s.timeLimit ? String(Math.min(ROUND_FRAMES / 60, sec)) : '∞', SCREEN_W / 2, 64);
+  }
+
+  /** 有介面框美術時的血量／鬥氣／能量（P2 左右鏡像，圖示在外側）。 */
+  private drawFighterHud(s: GameState, opt: RenderOptions, f: FighterState, i: 0 | 1, art: HudArt): void {
+    const g = this.ctx;
+    const c = getChar(f.charId);
+    const left = i === 0;
+    const blink = (n: number) => Math.floor(s.frame / n) % 2 === 1;
+    /** 把框畫在 (x, y)（P1 的座標，P2 自動鏡像），回傳中間空格的畫面座標 */
+    const frame = (part: HudPart, x: number, y: number): Box[] => {
+      const fx = left ? x : SCREEN_W - x - part.w;
+      const im = hudImages[part.name];
+      const slots = part.slots.map((b) => ({ x: left ? fx + b.x : fx + part.w - b.x - b.w, y: y + b.y, w: b.w, h: b.h }));
+      // 空格底色（圖上是透明的）
+      g.fillStyle = 'rgba(10,8,20,0.85)';
+      for (const b of slots) g.fillRect(b.x, b.y, b.w, b.h);
+      // 框本身等填色畫完再一起畫，蓋住填色的邊緣
+      frames.push(() => {
+        g.save();
+        if (left) g.drawImage(im, fx, y, part.w, part.h);
+        else { g.translate(fx + part.w, y); g.scale(-1, 1); g.drawImage(im, 0, 0, part.w, part.h); }
+        g.restore();
+      });
+      return slots;
+    };
+    const frames: (() => void)[] = [];
+
+    // 血量：從中間（內側）往外扣
+    const [hb] = frame(art.hp, 30, 12);
+    const ratio = Math.max(0, f.hp / c.maxHp);
+    const hw = Math.round(hb.w * ratio);
+    g.fillStyle = ratio > 0.3 ? '#5fe08a' : '#ff7043';
+    g.fillRect(left ? hb.x + hb.w - hw : hb.x, hb.y, hw, hb.h);
+    g.fillStyle = 'rgba(255,255,255,0.35)';
+    g.fillRect(left ? hb.x + hb.w - hw : hb.x, hb.y + 2, hw, 3);
+
+    // 鬥氣 6 格：第 1 格在內側
+    const slots = frame(art.drive, 44, 74);
+    const order = left ? [...slots].reverse() : slots; // 由內往外
+    order.forEach((b, k) => {
+      const fill = Math.max(0, Math.min(1, (f.drive - k * DRIVE_BAR) / DRIVE_BAR));
+      if (fill <= 0) return;
+      g.fillStyle = f.burnout ? (blink(10) ? '#777' : '#555') : fill >= 1 ? '#69f0ae' : '#2e9d6a';
+      const fw = Math.round(b.w * fill);
+      g.fillRect(left ? b.x + b.w - fw : b.x, b.y, fw, b.h);
+    });
+
+    // 能量（左下／右下）
+    const [mb] = frame(art.meter, 30, SCREEN_H - art.meter.h - 8);
+    const full = f.meter >= METER_MAX;
+    const mw = Math.round((mb.w * f.meter) / METER_MAX);
+    g.fillStyle = full ? (blink(6) ? '#40c4ff' : '#e1f5fe') : '#29b6f6';
+    g.fillRect(left ? mb.x : mb.x + mb.w - mw, mb.y, mw, mb.h);
+
+    for (const d of frames) d();
+
+    // 文字：燃盡、名字、勝場、能量提示、變身倒數
+    g.textAlign = left ? 'left' : 'right';
+    const inner = (xFromEdge: number) => (left ? xFromEdge : SCREEN_W - xFromEdge);
+    if (f.burnout) {
+      g.font = `bold 15px ${FONT}`;
+      g.fillStyle = blink(10) ? '#ff8a80' : '#fff';
+      g.strokeStyle = 'rgba(0,0,0,0.8)';
+      g.lineWidth = 4;
+      g.strokeText('燃盡', inner(44 + art.drive.w + 10), 108);
+      g.fillText('燃盡', inner(44 + art.drive.w + 10), 108);
+    }
+    g.font = `bold 20px ${FONT}`;
+    g.fillStyle = '#fff';
+    g.strokeStyle = 'rgba(0,0,0,0.7)';
+    g.lineWidth = 4;
+    const label = i === 1 && opt.p2Label ? `${c.name}（${opt.p2Label}）` : c.name;
+    g.strokeText(label, inner(36), 156);
+    g.fillText(label, inner(36), 156);
+    for (let k = 0; k < WINS_TO_MATCH; k++) {
+      const dx = inner(30 + art.hp.w - 14 - k * 24);
+      g.beginPath();
+      g.arc(dx, 150, 8, 0, Math.PI * 2);
+      g.fillStyle = k < f.wins ? '#ffd54f' : 'rgba(40,40,40,0.8)';
+      g.fill();
+      g.strokeStyle = '#fff';
+      g.lineWidth = 1.5;
+      g.stroke();
+    }
+    const my = SCREEN_H - art.meter.h - 14;
+    g.font = `bold 16px ${FONT}`;
+    g.fillStyle = full ? '#fff59d' : '#fff';
+    g.strokeStyle = 'rgba(0,0,0,0.7)';
+    g.lineWidth = 4;
+    const mt = full ? '必殺技 OK！（L+K）' : '能量';
+    g.strokeText(mt, inner(40), my);
+    g.fillText(mt, inner(40), my);
+    if (f.form === 'dino') {
+      g.fillStyle = '#ffca28';
+      const t = `恐龍形態 ${Math.ceil(f.formTimer / 60)} 秒`;
+      g.strokeText(t, inner(30 + art.meter.w + 14), SCREEN_H - 20);
+      g.fillText(t, inner(30 + art.meter.w + 14), SCREEN_H - 20);
+    }
   }
 
   private drawPhase(s: GameState): void {

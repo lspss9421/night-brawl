@@ -88,7 +88,7 @@ function applyAnimTiming(m: MoveDef, frames: CharacterSpriteData['animations'][s
       if (f.hit.length && t.hitWindows.some((w) => from >= w.from && from <= w.to)) boxes.push(...f.hit.map((b) => toGame(b, scale)));
     }
     // 鬥氣反擊保留程式設定的攻擊範圍（防禦後雙方被推開，畫出來的手掌不夠長）
-    if (m.kind !== 'reversal') m.hitbox = union(boxes) ?? m.hitbox;
+    if (m.kind !== 'reversal' && !m.codeHitbox) m.hitbox = union(boxes) ?? m.hitbox;
   } else if (!m.projectile && t.total > 0 && m.hitbox === undefined) {
     // 沒有攻擊判定的招（例如投空）：整段動畫都是收招
     m.recovery = Math.max(0, t.total - m.startup - m.active);

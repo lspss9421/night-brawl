@@ -15,9 +15,11 @@ function editorSavePlugin(): Plugin {
     apply: 'serve',
     configureServer(server) {
       server.middlewares.use(async (req, res, next) => {
-        const m = req.url?.match(/^\/__editor\/save\/([a-z0-9_-]{1,32})\/(sheet\.png|data\.json)$/);
-        if (!m || req.method !== 'POST') return next();
-        const [, id, file] = m;
+        // 介面美術（血條框等）：/__editor/save/ui/<名稱>.png|json → public/assets/ui/
+        const ui = req.url?.match(/^\/__editor\/save-ui\/([a-z0-9_-]{1,32}\.(?:png|json))$/);
+        const m = ui ? null : req.url?.match(/^\/__editor\/save\/([a-z0-9_-]{1,32})\/(sheet\.png|data\.json)$/);
+        if ((!m && !ui) || req.method !== 'POST') return next();
+        const [, id, file] = m ?? ['', '', ui![1]];
         try {
           const chunks: Buffer[] = [];
           let size = 0;
@@ -27,8 +29,8 @@ function editorSavePlugin(): Plugin {
             chunks.push(chunk as Buffer);
           }
           const body = Buffer.concat(chunks);
-          if (file === 'data.json') JSON.parse(body.toString('utf8'));
-          const dir = resolve(ROOT, 'public/assets/characters', id);
+          if (file.endsWith('.json')) JSON.parse(body.toString('utf8'));
+          const dir = ui ? resolve(ROOT, 'public/assets/ui') : resolve(ROOT, 'public/assets/characters', id);
           await mkdir(dir, { recursive: true });
           await writeFile(resolve(dir, file), body);
           res.statusCode = 200;

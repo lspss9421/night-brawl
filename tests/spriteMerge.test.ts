@@ -128,6 +128,9 @@ describe('第二批動畫：蹲攻擊、空中攻擊時間和程式設定一致�
         expect([a.startup, a.active, a.recovery], `${id}.${m}`).toEqual([b.startup, b.active, b.recovery]);
         expect(a.hitbox!.w, `${id}.${m} 攻擊範圍寬度`).toBeGreaterThanOrEqual(40);
       }
+      const tauntAnim = (data as CharacterSpriteData).animations.taunt.frames.reduce((n, f) => n + f.duration, 0);
+      const t = base.moves.taunt;
+      expect(tauntAnim, `${id} 挑釁動畫不會被截掉`).toBeLessThanOrEqual(t.startup + t.active + t.recovery);
       for (const k of ['intro', 'win', 'lose', 'taunt', 'throwing', 'dashF', 'dashB']) {
         expect((data as CharacterSpriteData).animations[k]?.frames.length, `${id}.${k}`).toBeGreaterThan(0);
       }
@@ -137,6 +140,11 @@ describe('第二批動畫：蹲攻擊、空中攻擊時間和程式設定一致�
 
 describe('鬥氣反擊、檔架等動畫', () => {
   for (const [id, data] of [['sawa', sawaData], ['mio', mioData]] as const) {
+    it(`${id}：蹲重拳保留程式設定的攻擊範圍`, () => {
+      const def = applySpriteData(getChar(id), data as CharacterSpriteData);
+      expect(def.moves.cHP.hitbox).toEqual(getChar(id).moves.cHP.hitbox);
+    });
+
     it(`${id}：有動畫，鬥氣反擊時間不變、攻擊範圍保留程式設定`, () => {
       const base = getChar(id);
       const def = applySpriteData(base, data as CharacterSpriteData);

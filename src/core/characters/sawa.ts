@@ -44,13 +44,14 @@ export const sawa: CharacterDef = {
       move({ id: 'sLK', name: '站輕腳', startup: 4, active: 3, recovery: 8, damage: 30, hitstun: 12, blockstun: 8, hitstop: 6, hitbox: { x: 15, y: 55, w: 72, h: 28 }, cancel: LIGHT_CANCEL }),
       move({ id: 'sHK', name: '站重腳', startup: 9, active: 3, recovery: 16, damage: 80, hitstun: 20, blockstun: 14, hitstop: 9, pushback: 800, hitbox: { x: 20, y: 85, w: 100, h: 38 }, cancel: HEAVY_CANCEL }),
       move({ id: 'cLP', name: '蹲輕拳', stance: 'crouch', startup: 3, active: 2, recovery: 6, damage: 22, hitstun: 12, blockstun: 8, hitstop: 6, hitbox: { x: 18, y: 75, w: 60, h: 28 }, cancel: LIGHT_CANCEL }),
-      move({ id: 'cHP', name: '蹲重拳（對空）', stance: 'crouch', startup: 6, active: 4, recovery: 17, damage: 70, hitstun: 19, blockstun: 13, hitstop: 9, knockdown: true, launch: { vx: 250, vy: 1600 }, hitbox: { x: 5, y: 95, w: 62, h: 125 }, cancel: HEAVY_CANCEL }),
+      move({ id: 'cHP', name: '蹲重拳（對空）', stance: 'crouch', startup: 6, active: 4, recovery: 17, damage: 70, hitstun: 19, blockstun: 13, hitstop: 9, knockdown: true, launch: { vx: 250, vy: 1600 }, // 從蹲姿身體前緣上方往前打（打對手臉的高度，也能對空）
+        codeHitbox: true, hitbox: { x: 40, y: 150, w: 75, h: 110 }, cancel: HEAVY_CANCEL }),
       move({ id: 'cLK', name: '蹲輕腳', stance: 'crouch', guard: 'low', startup: 4, active: 2, recovery: 8, damage: 22, hitstun: 11, blockstun: 8, hitstop: 6, hitbox: { x: 15, y: 0, w: 80, h: 28 }, cancel: LIGHT_CANCEL }),
       move({ id: 'cHK', name: '蹲重腳（掃腿）', stance: 'crouch', guard: 'low', startup: 8, active: 3, recovery: 21, damage: 75, hitstun: 20, blockstun: 13, hitstop: 9, knockdown: true, hitbox: { x: 15, y: 0, w: 105, h: 28 } }),
       move({ id: 'jLP', name: '空中輕拳', stance: 'air', guard: 'high', startup: 4, active: 5, recovery: 5, damage: 35, hitstun: 16, blockstun: 11, hitstop: 6, hitbox: { x: 15, y: 70, w: 60, h: 35 } }),
-      move({ id: 'jHP', name: '空中重拳', stance: 'air', guard: 'high', startup: 7, active: 6, recovery: 8, damage: 70, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 10, y: 20, w: 80, h: 60 } }),
+      move({ id: 'jHP', name: '空中重拳', stance: 'air', guard: 'high', startup: 9, active: 5, recovery: 14, damage: 70, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 10, y: 20, w: 80, h: 60 } }),
       move({ id: 'jLK', name: '空中輕腳', stance: 'air', guard: 'high', startup: 4, active: 6, recovery: 5, damage: 35, hitstun: 16, blockstun: 11, hitstop: 6, hitbox: { x: 10, y: 40, w: 55, h: 40 } }),
-      move({ id: 'jHK', name: '空中重腳', stance: 'air', guard: 'high', startup: 8, active: 7, recovery: 8, damage: 75, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 5, y: 10, w: 100, h: 45 } }),
+      move({ id: 'jHK', name: '空中重腳', stance: 'air', guard: 'high', startup: 9, active: 5, recovery: 14, damage: 75, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 5, y: 10, w: 100, h: 45 } }),
       move({
         id: 'sp', name: '愛心波動', kind: 'special', startup: 13, active: 1, recovery: 26,
         damage: 60, hitstun: 18, blockstun: 12, hitstop: 8, pushback: 600,

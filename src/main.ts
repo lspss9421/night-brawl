@@ -16,7 +16,8 @@ let screen: Screen = 'title';
 let online: OnlineGame | null = null;
 let game: GameState | null = null;
 // 開發版（npm run dev）預設顯示判定框、時間無限；發佈版像一般遊戲：不顯示判定框、回合 99 秒
-let showBoxes = import.meta.env.DEV;
+// 測試期間：發佈版也預設顯示判定框（F1 可以關掉）
+let showBoxes = true;
 let p2Mode: DummyMode = 'human';
 const cursor: [number, number] = [0, Math.min(1, CHARACTER_IDS.length - 1)];
 const ready: [boolean, boolean] = [false, false];
