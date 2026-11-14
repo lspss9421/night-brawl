@@ -8,3 +8,5 @@ art/
 # 第三方 AI 工具的技能（Higgsfield 等），只留在本機
 .agents/
 skills-lock.json
+trailer.html
+src/trailer.ts

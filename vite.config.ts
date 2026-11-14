@@ -17,6 +17,17 @@ function editorSavePlugin(): Plugin {
       server.middlewares.use(async (req, res, next) => {
         // 介面美術（血條框等）：/__editor/save/ui/<名稱>.png|json → public/assets/ui/
         const ui = req.url?.match(/^\/__editor\/save-ui\/([a-z0-9_-]{1,32}\.(?:png|json))$/);
+        // 預告片錄製（trailer.html）：/__editor/save-frame/<片段>/<檔名> → art/trailer/frames/<片段>/
+        const fr = req.url?.match(/^\/__editor\/save-frame\/([a-z0-9_-]{1,32})\/([a-z0-9_-]{1,32}\.(?:jpg|json))$/);
+        if (fr && req.method === 'POST') {
+          const chunks: Buffer[] = [];
+          for await (const chunk of req) chunks.push(chunk as Buffer);
+          const dir = resolve(ROOT, 'art/trailer/frames', fr[1]);
+          await mkdir(dir, { recursive: true });
+          await writeFile(resolve(dir, fr[2]), Buffer.concat(chunks));
+          res.end('ok');
+          return;
+        }
         const m = ui ? null : req.url?.match(/^\/__editor\/save\/([a-z0-9_-]{1,32})\/(sheet\.png|data\.json)$/);
         if ((!m && !ui) || req.method !== 'POST') return next();
         const [, id, file] = m ?? ['', '', ui![1]];

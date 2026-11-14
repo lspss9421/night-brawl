@@ -6,7 +6,7 @@ export type SfxName =
   | 'hit_light' | 'hit_heavy' | 'block' | 'parry' | 'perfect_parry' | 'throw' | 'throw_tech' | 'throw_land'
   | 'reversal' | 'burnout' | 'ko' | 'round' | 'fight' | 'super' | 'shot' | 'menu' | 'confirm' | 'hover' | 'whip' | 'heart' | 'mio_select' | 'mio_super' | 'sawa_super'
   | 'ann_round1' | 'ann_round2' | 'ann_final' | 'ann_fight' | 'ann_ko' | 'ann_time' | 'ann_win_sawa' | 'ann_win_mio'
-  | 'dino_tail' | 'dino_fire'
+  | 'dino_tail' | 'dino_fire' | 'dino_roar'
   | 'swing_lp' | 'swing_hp' | 'swing_lk' | 'swing_hk' | 'land';
 
 /** 背景音樂：menu = 主選單／選角（輕快）、battle = 對戰（緊張刺激） */
@@ -20,6 +20,8 @@ export interface AudioSettings {
   sfx: number;
 }
 
+/** Mio 變身動畫裡奶龍張嘴吼叫的那一格 */
+const ROAR_FRAME = 76;
 const SWING: Record<string, SfxName> = { LP: 'swing_lp', HP: 'swing_hp', LK: 'swing_lk', HK: 'swing_hk' };
 /** 常常出現的小動作音效小聲一點，不要蓋過打擊聲 */
 const SAMPLE_VOL: Partial<Record<SfxName, number>> = { swing_lp: 0.7, swing_hp: 0.8, swing_lk: 0.7, swing_hk: 0.8, land: 0.5 };
@@ -130,7 +132,7 @@ class AudioSystem {
       ann_fight: 'ann_fight.wav', ann_ko: 'ann_ko.wav', ann_time: 'ann_time.wav',
       ann_win_sawa: 'ann_win_sawa.wav', ann_win_mio: 'ann_win_mio.wav',
       // 奶龍：尾巴橫掃的咻聲、龍之吐息的噴火聲
-      dino_tail: 'dino_tail.wav', dino_fire: 'dino_fire.wav',
+      dino_tail: 'dino_tail.wav', dino_fire: 'dino_fire.wav', dino_roar: 'dino_roar.wav',
       // 出招揮空聲（輕重拳腳各一種）、落地
       swing_lp: 'swing_lp.wav', swing_hp: 'swing_hp.wav', swing_lk: 'swing_lk.wav', swing_hk: 'swing_hk.wav',
       land: 'land.wav' };
@@ -435,6 +437,8 @@ class AudioSystem {
       // 奶龍：出招第一格播（咻聲最響的地方剛好在尾巴打到的時候；噴火聲先吸氣再噴）
       if (f.action === 'attack' && f.frame === 1 && f.moveId === 'dHK') this.play('dino_tail');
       if (f.action === 'attack' && f.frame === 1 && f.moveId === 'dBreath') this.play('dino_fire');
+      // Mio 變身：奶龍抬頭張嘴吼叫那一格播恐龍咆哮（變身動畫第 76 格）
+      if (f.charId === 'mio' && f.action === 'attack' && f.moveId === 'super' && f.frame === ROAR_FRAME) this.play('dino_roar');
       // Sawa 必殺技：橫幅結束、拿起麥克風那一格開始播（音檔約 2 秒，剛好到技能結束）
       if (f.charId === 'sawa' && f.action === 'attack' && f.frame === 1 && f.moveId === 'super') this.play('sawa_super');
       // 一般技：出招第一格播揮空聲（站／蹲／空中、奶龍的拳腳都算；奶龍重腳已經有尾巴聲）
