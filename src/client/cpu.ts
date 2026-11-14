@@ -108,6 +108,16 @@ export class CpuPlayer {
       if (movePhase(me) === 'recovery' && me.hitsDone === 0) this.combo = [];
       return this.comboHold;
     }
+    // 鬥氣衝刺中：衝到一半接下一招
+    if (me.action === 'driveRush') {
+      if (this.plan.length) return this.next();
+      if (me.frame >= 8 && this.combo.length) {
+        const bits = this.combo.shift()!;
+        this.plan = [{ bits, frames: 2 }];
+        return this.next();
+      }
+      return 0;
+    }
     if (!['idle', 'walkF', 'walkB', 'crouch', 'land', 'air', 'jumpSquat'].includes(me.action)) {
       this.reset();
       return 0;
@@ -127,15 +137,23 @@ export class CpuPlayer {
         // 同一次跳躍只判斷一次（以 45 格為一個時間窗）
         const key = `aa${Math.floor(s.frame / 45)}`;
         if (this.once(key, this.p.antiAir)) {
-          this.plan = [{ bits: Btn.DOWN | Btn.HP, frames: 2 }];
+          // 普通、困難：一半用對空技（→↓↘ + 拳），其他用蹲重拳
+          if (this.level !== 'easy' && me.form === 'normal' && me.drive >= 2 * DRIVE_BAR && !me.burnout && this.chance(0.5)) this.plan = this.motion623(fwd, Btn.HP);
+          else this.plan = [{ bits: Btn.DOWN | Btn.HP, frames: 2 }];
           return this.next();
         }
         if (dist < 180 && this.once(`aab${key}`, this.p.block)) return back;
       }
     }
 
-    // 防禦：對手出招中、而且打得到這裡
+    // 對手放鬥氣衝擊：困難電腦有時用鬥氣衝擊回擊（打康會跪倒）
     const fm = currentMove(foe);
+    if (foe.action === 'attack' && fm?.kind === 'impact' && foe.frame < 12 && dist < 230 && this.level === 'hard'
+      && me.form === 'normal' && me.drive >= DRIVE_BAR && !me.burnout && this.once(`di${s.frame - foe.frame}`, 0.5)) {
+      this.plan = [{ bits: fwd | Btn.DRIVE, frames: 2 }];
+      return this.next();
+    }
+    // 防禦：對手出招中、而且打得到這裡
     if (foe.action === 'attack' && fm && movePhase(foe) !== 'recovery' && (fm.damage ?? 0) > 0) {
       const reach = this.reach(foe);
       if (fm.fullScreen || dist < reach + 70) {
@@ -179,8 +197,8 @@ export class CpuPlayer {
     const c = getChar(me.charId);
     const walk = (dir: number, frames: number) => { this.plan = [{ bits: dir, frames }]; };
     const press = (bits: InputBits) => { this.plan = [{ bits, frames: 2 }]; };
-    // 特殊技要的鬥氣（每招不同：愛心波動、鞭擊 2 格，龍之吐息 3 格）
-    const spCost = getChar(me.charId).moves[formStats(me).moves.sp ?? '']?.driveCost ?? DRIVE_BAR;
+    // 特殊技要的鬥氣（一般特殊技 2 格、龍之吐息 3 格）
+    const spCost = getChar(me.charId).moves[formStats(me).moves.sp ?? '']?.driveCost ?? 0;
     const hasDrive = me.drive >= spCost && !me.burnout;
 
     // 恐龍形態：一直往前打
@@ -199,7 +217,10 @@ export class CpuPlayer {
     const r = this.rand();
 
     if (dist > 330) {
-      if (sp?.projectile && hasDrive && !s.projectiles.some((pr) => pr.owner === s.fighters.indexOf(me)) && r < 0.3 + p.aggression * 0.2) press(Btn.SP);
+      if (sp?.projectile && hasDrive && !s.projectiles.some((pr) => pr.owner === s.fighters.indexOf(me)) && r < 0.3 + p.aggression * 0.2) {
+        if (this.level === 'easy') press(Btn.SP);
+        else this.plan = this.motion236(fwd, Btn.LP); // 搓招（全傷害）
+      }
       else if (r < 0.15 * p.aggression) this.plan = [{ bits: fwd, frames: 1 }, { bits: 0, frames: 1 }, { bits: fwd, frames: 6 }]; // 衝刺
       else walk(fwd, 18);
     } else if (dist > 200) {
@@ -208,6 +229,8 @@ export class CpuPlayer {
       else if (r < 0.85) walk(fwd, 14);
       else walk(back, 10);
     } else if (dist > 125) {
+      // 鬥氣衝擊：偶爾硬衝（困難比較常用）
+      if (me.form === 'normal' && me.drive >= 3 * DRIVE_BAR && !me.burnout && this.level !== 'easy' && r < (this.level === 'hard' ? 0.06 : 0.03)) { press(fwd | Btn.DRIVE); return; }
       if (r < 0.45 * p.aggression) press(this.rand() < 0.5 ? Btn.HK : Btn.DOWN | Btn.HK); // 用最遠的腳牽制
       else if (r < 0.75) walk(fwd, 10);
       else if (r < 0.9) walk(back, 10);
@@ -233,12 +256,26 @@ export class CpuPlayer {
         : this.p.combo === 1
           ? [[Btn.LP, Btn.HP], [Btn.DOWN | Btn.LK, Btn.DOWN | Btn.HK], [Btn.DOWN | Btn.LP, Btn.DOWN | Btn.HP]]
           : [[Btn.LP, Btn.HP, Btn.SP], [Btn.DOWN | Btn.LK, Btn.DOWN | Btn.HK], [Btn.DOWN | Btn.LP, Btn.HP, Btn.SP]];
+    // 困難：鬥氣夠的時候用鬥氣衝刺延長連段（重拳 → 衝刺 → 重拳 → 特殊技）
+    if (this.level === 'hard' && me.form === 'normal' && me.drive >= 4 * DRIVE_BAR && !me.burnout && this.chance(0.35)) {
+      routes.splice(0, routes.length, [Btn.HP, Btn.DRIVE, Btn.HP, Btn.SP]);
+    }
     let route = routes[Math.floor(this.rand() * routes.length)];
     if (!hasDrive || this.p.combo < 2) route = route.filter((b) => b !== Btn.SP || this.p.combo >= 1 && hasDrive && punish);
     const [first, ...rest] = route;
     this.combo = rest;
     this.comboHold = first & Btn.DOWN;
     this.plan = [{ bits: first, frames: 2 }, { bits: first & Btn.DOWN, frames: 1 }];
+  }
+
+  /** ↓↘→ + 按鍵 */
+  private motion236(fwd: number, btn: number): Step[] {
+    return [{ bits: Btn.DOWN, frames: 1 }, { bits: Btn.DOWN | fwd, frames: 1 }, { bits: fwd, frames: 1 }, { bits: fwd | btn, frames: 2 }];
+  }
+
+  /** →↓↘ + 按鍵 */
+  private motion623(fwd: number, btn: number): Step[] {
+    return [{ bits: fwd, frames: 1 }, { bits: Btn.DOWN, frames: 1 }, { bits: Btn.DOWN | fwd, frames: 1 }, { bits: Btn.DOWN | fwd | btn, frames: 2 }];
   }
 
   private next(): InputBits {

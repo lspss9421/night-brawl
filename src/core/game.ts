@@ -51,7 +51,6 @@ export const DRIVE_BAR = 10000;
 export const DRIVE_MAX = 6 * DRIVE_BAR;
 const DRIVE_REGEN = 50; // 每格回復量：約 20 秒回滿
 const DRIVE_REGEN_BURNOUT = 100; // 燃盡時加快：約 10 秒回滿
-const SPECIAL_COST = DRIVE_BAR;
 const REVERSAL_COST = 2 * DRIVE_BAR;
 const PARRY_START_COST = DRIVE_BAR / 2;
 const PARRY_DRAIN = 100; // 按住檔架時每格消耗
@@ -64,6 +63,37 @@ const HIT_GAIN_LIGHT = DRIVE_BAR / 4;
 const HIT_GAIN_HEAVY = DRIVE_BAR / 2;
 const BURNOUT_BLOCKSTUN = 4;
 const BURNOUT_CHIP_DIV = 4;
+
+// ───── 打康（出招中被打）／確反康（收招中被打）─────
+const COUNTER_PCT = 120; // 傷害 1.2 倍
+const COUNTER_STUN = { light: 2, heavy: 4 }; // 受擊硬直多幾格
+const PUNISH_STUN = { light: 4, heavy: 6 };
+const PUNISH_DRIVE_DMG = DRIVE_BAR / 2; // 確反康：對手鬥氣扣半格
+
+// ───── 鬥氣衝刺（Drive Rush）─────
+const RUSH_PARRY_COST = DRIVE_BAR; // 檔架中連按兩下前
+const RUSH_CANCEL_COST = 3 * DRIVE_BAR; // 普通技打中／被防時按鬥氣
+const RUSH_SPEED = 1300;
+const RUSH_ACT = 7; // 衝刺第幾格起可以出招
+const RUSH_MAX = 26;
+const RUSH_BONUS = 4; // 衝刺中出的招：打中／被防多 4 格硬直
+const RUSH_CARRY = 700; // 衝刺中出招會帶著往前滑
+
+// ───── 鬥氣衝擊（Drive Impact）─────
+const WALL_SPLAT_DIST = 260 * FP; // 被打中時離牆這麼近 = 撞牆
+const CRUMPLE_FRAMES = 60; // 打康時被打中：跪倒
+const WALL_SPLAT_FRAMES = 50;
+const DIZZY_FRAMES = 110; // 燃盡時在牆邊防禦鬥氣衝擊：暈眩
+
+// ───── 指令技 ─────
+const MOTION_WINDOW = 18; // 搓招要在幾格內完成
+const ASSIST_PCT = 80; // 簡易操作（特殊鍵）出的特殊技傷害 8 成
+/** 數字鍵盤方向（6 = 前）。依序找得到就算（中間按到別的方向沒關係） */
+const MOTIONS: Record<'236' | '623' | '214', number[][]> = {
+  '623': [[6, 2, 3]],
+  '236': [[2, 3, 6], [2, 6]],
+  '214': [[2, 1, 4], [2, 4]],
+};
 const TAUNT_FRAMES = 90;
 const INTRO_FIRST = 150;
 const INTRO_NEXT = 150; // 每回合都播完整的開場動畫
@@ -113,6 +143,12 @@ function newFighter(charId: string, side: 0 | 1, wins: number): FighterState {
     throwPunish: false,
     landDamage: 0,
     backdashCd: 0,
+    dirHist: [],
+    rushBonus: false,
+    assisted: false,
+    armorUsed: 0,
+    wallSplat: false,
+    afterCrumple: false,
   };
 }
 
@@ -277,6 +313,15 @@ export function step(s: GameState, inputs: [InputBits, InputBits]): void {
     s.hitstop--;
     return;
   }
+  // 慢動作（例如上勾拳打中）：每 3 格才跑 1 格
+  if (s.slowmo && s.slowmo > 0) {
+    s.slowmo--;
+    if (s.slowmo % 3 !== 0) {
+      recordInput(s, 0, ins[0]);
+      recordInput(s, 1, ins[1]);
+      return;
+    }
+  }
 
   recordInput(s, 0, ins[0]);
   recordInput(s, 1, ins[1]);
@@ -330,7 +375,11 @@ function recordInput(s: GameState, i: 0 | 1, input: InputBits): void {
   // 連按兩下前 / 後 = 衝刺 / 後撤
   const h = horizontal(input, f.facing);
   const hPrev = horizontal(prev, f.facing);
-  if (h !== 0 && h !== hPrev) {
+  if (h !== 0 && h !== hPrev && held(input, Btn.DOWN)) {
+    // 按著下的時候不算衝刺（→↓↘、↓↘→ 這類搓招會按到兩次前）
+    f.lastFwdTap = -100;
+    f.lastBackTap = -100;
+  } else if (h !== 0 && h !== hPrev) {
     if (h === 1) {
       if (s.frame - f.lastFwdTap <= DASH_WINDOW) { f.dashReq = 1; f.dashTimer = 4; }
       f.lastFwdTap = s.frame;
@@ -339,7 +388,28 @@ function recordInput(s: GameState, i: 0 | 1, input: InputBits): void {
       f.lastBackTap = s.frame;
     }
   }
+  // 方向變化記錄（搓招用）
+  const dir = (held(input, Btn.DOWN) ? 2 : held(input, Btn.UP) ? 8 : 5) + h;
+  const last = f.dirHist[f.dirHist.length - 1];
+  if (!last || last.d !== dir) {
+    f.dirHist.push({ d: dir, f: s.frame });
+    if (f.dirHist.length > 12) f.dirHist.shift();
+  }
   f.prevInput = input;
+}
+
+/** 最近 MOTION_WINDOW 格內有沒有搓出這個指令 */
+function motionDone(s: GameState, f: FighterState, motion: keyof typeof MOTIONS): boolean {
+  const hist = f.dirHist;
+  for (const pat of MOTIONS[motion]) {
+    let k = pat.length - 1;
+    for (let j = hist.length - 1; j >= 0 && k >= 0; j--) {
+      if (j < hist.length - 1 && s.frame - hist[j].f > MOTION_WINDOW) break;
+      if (hist[j].d === pat[k]) k--;
+    }
+    if (k < 0) return true;
+  }
+  return false;
 }
 
 // ───────────── 角色狀態機 ─────────────
@@ -350,6 +420,8 @@ function setAction(f: FighterState, a: Action): void {
     f.frame = 0;
   }
   if (a !== 'attack') f.moveId = null;
+  if (a !== 'crumple') f.wallSplat = false;
+  if (a !== 'knockdown') f.afterCrumple = false;
   if (a === 'idle' || a === 'walkF' || a === 'walkB' || a === 'crouch') f.comboHits = 0;
 }
 
@@ -362,10 +434,21 @@ function startMove(s: GameState, i: 0 | 1, id: string): void {
   f.hitsDone = 0;
   f.bufBits = 0;
   f.dashReq = 0;
+  f.rushBonus = false;
+  f.assisted = false;
+  f.armorUsed = 0;
   if (m.invuln) f.invuln = Math.max(f.invuln, m.invuln);
   if (m.superFreeze) s.superFreeze = { owner: i, timer: m.superFreeze };
   if (m.kind === 'taunt') f.bubble = { text: getChar(f.charId).texts.taunt, timer: TAUNT_FRAMES };
-  if (m.kind === 'special') addDrive(s, f, -(m.driveCost ?? SPECIAL_COST));
+  if ((m.kind === 'special' || m.kind === 'impact') && m.driveCost) addDrive(s, f, -m.driveCost);
+  if (m.od) {
+    s.events.push('od');
+    s.sparks.push({ x: f.x, y: f.y + 110 * FP, timer: 20, kind: 'od' });
+  }
+  if (m.kind === 'impact') {
+    s.events.push('impact');
+    s.sparks.push({ x: f.x, y: f.y + 110 * FP, timer: 24, kind: 'impact' });
+  }
   if (m.kind === 'reversal') {
     addDrive(s, f, -REVERSAL_COST);
     s.events.push('reversal');
@@ -384,7 +467,7 @@ function updateFighter(s: GameState, i: 0 | 1, input: InputBits): void {
   f.frame++;
 
   // 鬥氣隨時間回復（防禦、受擊、檔架中不回復）
-  if (s.phase === 'fight' && !['blockstun', 'hitstun', 'airHit', 'thrown', 'parry', 'parried', 'knockdown'].includes(f.action)) {
+  if (s.phase === 'fight' && !['blockstun', 'hitstun', 'airHit', 'thrown', 'parry', 'parried', 'knockdown', 'driveRush', 'crumple'].includes(f.action)) {
     addDrive(s, f, f.burnout ? DRIVE_REGEN_BURNOUT : DRIVE_REGEN);
   }
 
@@ -437,6 +520,8 @@ function updateFighter(s: GameState, i: 0 | 1, input: InputBits): void {
     case 'parry':
       // 按住鬥氣鍵 = 檔架；持續消耗鬥氣，放開（至少維持 PARRY_MIN 格）或鬥氣用光就結束
       addDrive(s, f, -PARRY_DRAIN);
+      // 檔架中連按兩下前 = 鬥氣衝刺（扣 1 格）
+      if (f.dashReq === 1 && canSpend(f, RUSH_PARRY_COST)) { startRush(s, i, RUSH_PARRY_COST); break; }
       if (f.burnout || (!held(input, Btn.DRIVE) && f.frame >= PARRY_MIN)) setAction(f, 'parryEnd');
       break;
     case 'parryEnd':
@@ -444,6 +529,22 @@ function updateFighter(s: GameState, i: 0 | 1, input: InputBits): void {
       break;
     case 'parried':
       if (--f.stun <= 0) setAction(f, 'idle');
+      break;
+    case 'driveRush':
+      f.x += RUSH_SPEED * f.facing;
+      if (f.frame >= RUSH_ACT && tryAttack(s, i, input, 'ground')) {
+        if ((f.action as Action) === 'attack') {
+          f.rushBonus = true;
+          f.slide = RUSH_CARRY;
+          f.slideDir = f.facing;
+        }
+        break;
+      }
+      if (f.frame >= RUSH_MAX) setAction(f, 'idle');
+      break;
+    case 'crumple':
+      // 跪倒／撞牆／暈眩：時間到就倒地
+      if (--f.stun <= 0) { setAction(f, 'knockdown'); f.afterCrumple = true; }
       break;
     case 'blockstun':
       // 防禦中按鬥氣鍵 = 鬥氣反擊（扣 2 格）
@@ -513,6 +614,12 @@ function updateStun(f: FighterState): void {
 
 function groundNeutral(s: GameState, i: 0 | 1, input: InputBits, c: CharacterDef, st: FormStats): void {
   const f = s.fighters[i];
+  // 前 + 鬥氣鍵 = 鬥氣衝擊（扣 1 格，有霸體）
+  const impact = c.moves.impact;
+  if ((f.bufBits & Btn.DRIVE) && horizontal(input, f.facing) === 1 && f.form === 'normal' && impact && canSpend(f, impact.driveCost ?? 0)) {
+    startMove(s, i, 'impact');
+    return;
+  }
   // 按下鬥氣鍵 = 開始檔架
   if ((f.bufBits & Btn.DRIVE) && held(input, Btn.DRIVE) && canSpend(f, 1) && f.form === 'normal') {
     f.bufBits &= ~Btn.DRIVE;
@@ -580,6 +687,15 @@ function tryAttack(s: GameState, i: 0 | 1, input: InputBits, ctx: AttackCtx): bo
     if ((b & (Btn.HP | Btn.HK)) && (both & Btn.HP) && (both & Btn.HK) && f.form === 'normal') { startMove(s, i, 'throwWhiff'); return true; }
     return false;
   }
+  // 指令技（搓招 + 拳／腳），或特殊鍵的簡易操作
+  if (ctx === 'ground' || ctx === 'cancel') {
+    const cmd = commandMove(s, f, st, b, both, input);
+    if (cmd && allowed(cmd.id)) {
+      startMove(s, i, cmd.id);
+      f.assisted = cmd.assisted;
+      return true;
+    }
+  }
   // 投技：→ + 重拳 + 重腳
   if (ctx === 'ground' && (b & (Btn.HP | Btn.HK)) && (both & Btn.HP) && (both & Btn.HK)
     && horizontal(input, f.facing) >= 0 && f.form === 'normal') {
@@ -592,11 +708,10 @@ function tryAttack(s: GameState, i: 0 | 1, input: InputBits, ctx: AttackCtx): bo
   }
 
   let id: string | undefined;
-  if ((b & Btn.SP) && ctx !== 'air') {
+  // 沒有指令技的形態（奶龍）：照原本的方式，特殊鍵直接出特殊技（全傷害）
+  if (!st.cmds?.length && (b & Btn.SP) && ctx !== 'air') {
     id = st.moves.sp;
-    const m = id ? c.moves[id] : undefined;
-    if (m?.projectile && s.projectiles.some((p) => p.owner === i)) id = undefined; // 一次只能有一發
-    if (m?.kind === 'special' && !canSpend(f, m.driveCost ?? SPECIAL_COST)) id = undefined; // 鬥氣不夠或燃盡中
+    if (id && !moveUsable(s, f, id)) id = undefined; // 鬥氣不夠或燃盡中
   }
   if (!id && ctx === 'air') {
     // 空中四個鍵各是不同的招
@@ -617,6 +732,67 @@ function tryAttack(s: GameState, i: 0 | 1, input: InputBits, ctx: AttackCtx): bo
   if (ctx === 'air' && c.moves[id].stance !== 'air') return false;
   startMove(s, i, id);
   return true;
+}
+
+/** 這招現在能不能出（鬥氣夠不夠、飛行道具一次只能一發） */
+function moveUsable(s: GameState, f: FighterState, id: string): boolean {
+  const m = getChar(f.charId).moves[id];
+  if (!m) return false;
+  if (m.projectile && s.projectiles.some((p) => s.fighters[p.owner] === f)) return false;
+  return !m.driveCost || canSpend(f, m.driveCost);
+}
+
+/** 依搓招和按鍵找出要出的特殊技；兩個拳（或兩個腳）一起按 = OD 強化版（鬥氣不夠就出一般版） */
+function commandMove(s: GameState, f: FighterState, st: FormStats, b: InputBits, both: InputBits, input: InputBits): { id: string; assisted: boolean } | null {
+  const cmds = st.cmds ?? [];
+  if (!cmds.length) return null;
+  const P = Btn.LP | Btn.HP;
+  const K = Btn.LK | Btn.HK;
+  for (const motion of ['623', '236', '214'] as const) {
+    if (!cmds.some((c) => c.motion === motion) || !motionDone(s, f, motion)) continue;
+    for (const c of cmds) {
+      if (c.motion !== motion) continue;
+      const mask = c.btn === 'P' ? P : K;
+      if (!(b & mask)) continue;
+      if (c.od && (both & mask) === mask && moveUsable(s, f, c.od)) return { id: c.od, assisted: false };
+      if (moveUsable(s, f, c.move)) return { id: c.move, assisted: false };
+    }
+  }
+  if (b & Btn.SP) {
+    const v = held(input, Btn.DOWN) ? 'd' : horizontal(input, f.facing) === 1 ? 'f' : 'n';
+    const c = cmds.find((x) => x.sp === v) ?? cmds.find((x) => x.sp === 'n');
+    // 簡易操作的 OD：特殊鍵 + 重拳
+    if (c?.od && (both & Btn.HP) && moveUsable(s, f, c.od)) return { id: c.od, assisted: true };
+    if (c && moveUsable(s, f, c.move)) return { id: c.move, assisted: true };
+  }
+  return null;
+}
+
+/** 開始鬥氣衝刺 */
+function startRush(s: GameState, i: 0 | 1, cost: number): void {
+  const f = s.fighters[i];
+  addDrive(s, f, -cost);
+  setAction(f, 'driveRush');
+  f.frame = 0;
+  f.bufBits &= ~Btn.DRIVE;
+  f.dashReq = 0;
+  s.events.push('rush');
+  s.sparks.push({ x: f.x, y: f.y + 60 * FP, timer: 16, kind: 'rush' });
+}
+
+/** 跪倒／撞牆／暈眩：一段時間不能動，可以被追打 */
+function setCrumple(d: FighterState, frames: number, wall: boolean, pushDir: 1 | -1): void {
+  setAction(d, 'crumple');
+  d.frame = 0;
+  d.stun = frames;
+  d.y = 0;
+  d.vx = 0;
+  d.vy = 0;
+  d.crouchStun = false;
+  d.slide = wall ? 0 : 300;
+  d.slideDir = pushDir;
+  if (wall) d.x = pushDir === 1 ? STAGE_RIGHT : STAGE_LEFT;
+  d.wallSplat = wall;
 }
 
 /** 投技在攻擊判定格時嘗試抓住對手。 */
@@ -702,9 +878,28 @@ function updateAttack(s: GameState, i: 0 | 1, input: InputBits, c: CharacterDef,
   const m = currentMove(f);
   if (!m) { setAction(f, 'idle'); return; }
 
+  // 特殊技剛出的前 3 格：補按另一個拳（腳）= 升級成 OD（鍵盤很難兩個鍵剛好同一格按下）
+  if (m.kind === 'special' && !m.od && f.frame <= 3) {
+    const cmd = st.cmds?.find((x) => x.move === m.id && x.od);
+    const mask = f.assisted ? Btn.SP | Btn.HP : cmd?.btn === 'K' ? Btn.LK | Btn.HK : Btn.LP | Btn.HP;
+    const od = cmd?.od ? c.moves[cmd.od] : undefined;
+    if (od && (input & mask) === mask && !f.burnout && f.drive + (m.driveCost ?? 0) >= (od.driveCost ?? 0)) {
+      const assisted = f.assisted;
+      f.drive += m.driveCost ?? 0; // 退回一般版扣的鬥氣，改扣 OD 的
+      startMove(s, i, od.id);
+      f.assisted = assisted;
+      return;
+    }
+  }
   // 招式剛出的前 3 格：可補按成投技 / 必殺技
   if (f.frame <= 3 && (m.kind === 'normal' || m.kind === 'special') && m.stance !== 'air') {
     if (tryAttack(s, i, input, 'kara')) return;
+  }
+  // 普通技打中或被防之後按鬥氣 = 鬥氣衝刺取消（扣 3 格）
+  if (f.hitsDone > 0 && f.frame > m.startup && m.cancel && m.kind === 'normal' && f.form === 'normal'
+    && (f.bufBits & Btn.DRIVE) && canSpend(f, RUSH_CANCEL_COST)) {
+    startRush(s, i, RUSH_CANCEL_COST);
+    return;
   }
   // 打中或被防之後可取消
   if (f.hitsDone > 0 && f.frame > m.startup && m.cancel) {
@@ -718,14 +913,31 @@ function updateAttack(s: GameState, i: 0 | 1, input: InputBits, c: CharacterDef,
 
   if (m.advance && f.frame <= m.startup + m.active) f.x += m.advance * f.facing;
 
-  if (m.projectile && f.frame === m.projectile.spawnFrame) {
+  // 召喚物：先出現在腳邊等著，到 spawnFrame 才飛出去
+  const sm = m.projectile?.summon;
+  if (m.projectile && sm && f.frame === sm.frame) {
+    s.projectiles.push({
+      owner: i,
+      moveId: m.id,
+      x: f.x + sm.x * FP * f.facing,
+      y: sm.y * FP,
+      vx: m.projectile.speed * f.facing,
+      life: m.projectile.life ?? 300,
+      assisted: f.assisted,
+      wait: m.projectile.spawnFrame - sm.frame,
+      targetY: m.projectile.spawnY * FP,
+    });
+    // 出現時的粉紅煙霧已經畫在貓咪坐著的第 1 格裡
+  }
+  if (m.projectile && !sm && f.frame === m.projectile.spawnFrame) {
     s.projectiles.push({
       owner: i,
       moveId: m.id,
       x: f.x + m.projectile.spawnX * FP * f.facing,
       y: m.projectile.spawnY * FP,
       vx: m.projectile.speed * f.facing,
-      life: 300,
+      life: m.projectile.life ?? 300,
+      assisted: f.assisted,
     });
   }
 
@@ -788,19 +1000,40 @@ function resolvePush(s: GameState): void {
 
 function updateProjectiles(s: GameState): void {
   for (const p of s.projectiles) {
-    p.x += p.vx;
-    p.life--;
+    if (p.wait && p.wait > 0) {
+      // 在腳邊等主人下指令；主人被打斷（不在出這招）就消失
+      const o = s.fighters[p.owner];
+      if (o.action !== 'attack' || o.moveId !== p.moveId) p.life = 0;
+      else p.wait--;
+    } else if (p.latch) {
+      // 黏在對手臉上：跟著對手移動；對手倒地、被打飛或沒血 → 消失
+      const o = s.fighters[1 - p.owner];
+      p.x = o.x;
+      p.y = o.y + 150 * FP;
+      if (['knockdown', 'getup', 'airHit', 'thrown'].includes(o.action) || o.hp <= 0) p.life = 0;
+    } else {
+      p.x += p.vx;
+      // 從腳邊跳起來：高度慢慢往目標（臉的高度）靠
+      if (p.targetY !== undefined && p.y !== p.targetY) p.y += Math.trunc((p.targetY - p.y) / 3) || Math.sign(p.targetY - p.y);
+      p.life--;
+    }
+    // 召喚物沒打中（飛完了）或被打斷：冒一團煙消失
+    if (p.life <= 0 && projMove(s, p).latch) s.sparks.push({ x: p.x, y: p.y, timer: 24, kind: 'puff' });
   }
   // 兩發飛行道具互相抵銷
   if (s.projectiles.length === 2) {
     const [p, q] = s.projectiles;
-    if (p.owner !== q.owner && overlap(projBox(s, p), projBox(s, q))) {
+    if (p.owner !== q.owner && !p.latch && !q.latch && !p.wait && !q.wait && overlap(projBox(s, p), projBox(s, q))) {
       s.sparks.push({ x: Math.trunc((p.x + q.x) / 2), y: p.y, timer: 12, kind: 'block' });
       p.life = 0;
       q.life = 0;
     }
   }
   s.projectiles = s.projectiles.filter((p) => p.life > 0 && p.x > 0 && p.x < SCREEN_W * FP);
+}
+
+function projMove(s: GameState, p: GameState['projectiles'][number]): MoveDef {
+  return getChar(s.fighters[p.owner].charId).moves[p.moveId];
 }
 
 export function projBox(s: GameState, p: GameState['projectiles'][number]): Box {
@@ -817,6 +1050,11 @@ interface PendingHit {
   srcX: number;
   contact: { x: number; y: number };
   fromProjectile: boolean;
+  assisted: boolean;
+  /** 飛行道具／召喚物本身（打中後要決定消失還是黏住） */
+  proj?: GameState['projectiles'][number];
+  /** 召喚物連抓：這是不是最後一下（最後一下才會擊倒） */
+  finalHit?: boolean;
 }
 
 function detectHits(s: GameState): void {
@@ -842,18 +1080,45 @@ function detectHits(s: GameState): void {
         ? { x: o.x, y: o.y + 120 * FP }
         : { x: Math.trunc((Math.max(hit.x, touched.x) + Math.min(hit.x + hit.w, touched.x + touched.w)) / 2), y: Math.trunc((Math.max(hit.y, touched.y) + Math.min(hit.y + hit.h, touched.y + touched.h)) / 2) },
       fromProjectile: false,
+      assisted: f.assisted,
     });
   }
   for (const p of s.projectiles) {
+    if (p.life <= 0 || (p.wait && p.wait > 0)) continue;
+    const m = projMove(s, p);
+    if (p.latch) {
+      // 黏在臉上連抓：時間到就抓一下（不用判定框）
+      if (--p.latch.timer > 0) continue;
+      pending.push({ attacker: p.owner, move: m, srcX: p.x - s.fighters[1 - p.owner].facing * 100, contact: { x: p.x, y: p.y }, fromProjectile: true, assisted: !!p.assisted, proj: p, finalHit: p.latch.left <= 1 });
+      p.latch.left--;
+      p.latch.timer = m.latch!.interval;
+      continue;
+    }
     const o = s.fighters[1 - p.owner];
     const box = projBox(s, p);
     if (!hurtboxes(o, s).some((h) => overlap(box, h))) continue;
-    const m = getChar(s.fighters[p.owner].charId).moves[p.moveId];
-    pending.push({ attacker: p.owner, move: m, srcX: p.x - p.vx * 10, contact: { x: p.x, y: p.y }, fromProjectile: true });
+    pending.push({ attacker: p.owner, move: m, srcX: p.x - p.vx * 10, contact: { x: p.x, y: p.y }, fromProjectile: true, assisted: !!p.assisted, proj: p, finalHit: m.latch ? m.latch.hits <= 1 : true });
     p.life = 0;
   }
+  for (const h of pending) {
+    const result = applyHit(s, h);
+    const p = h.proj;
+    if (!p || !h.move.latch) continue;
+    if (s.events[s.events.length - 1] !== 'scratch') s.events.push('scratch');
+    if (p.latch) {
+      // 連抓中：抓完最後一下就消失
+      if (p.latch.left <= 0) { p.life = 0; s.sparks.push({ x: p.x, y: p.y, timer: 24, kind: 'puff' }); }
+    } else if (result === 'hit' && h.move.latch.hits > 1) {
+      // 第一下抓中：黏到對手臉上
+      p.latch = { left: h.move.latch.hits - 1, timer: h.move.latch.interval };
+      p.life = 300;
+      p.vx = 0;
+    } else {
+      // 被防、被檔架、被霸體吃掉：消失
+      s.sparks.push({ x: p.x, y: p.y, timer: 24, kind: 'puff' });
+    }
+  }
   s.projectiles = s.projectiles.filter((p) => p.life > 0);
-  for (const h of pending) applyHit(s, h);
 }
 
 function gainMeter(f: FighterState, amount: number): void {
@@ -863,7 +1128,7 @@ function gainMeter(f: FighterState, amount: number): void {
   f.meter = Math.min(METER_MAX, f.meter + amount);
 }
 
-function applyHit(s: GameState, h: PendingHit): void {
+function applyHit(s: GameState, h: PendingHit): 'hit' | 'block' | 'parry' | 'armor' {
   const a = s.fighters[h.attacker];
   const d = s.fighters[1 - h.attacker];
   const m = h.move;
@@ -908,11 +1173,42 @@ function applyHit(s: GameState, h: PendingHit): void {
       s.sparks.push({ ...h.contact, timer: 12, kind: 'parry' });
       s.events.push('parry');
     }
-    return;
+    return 'parry';
+  }
+
+  const scale = Math.max(50, 100 - 10 * Math.max(0, d.comboHits - 2));
+  const defense = formStats(d).defensePct ?? 100; // 恐龍形態等比較耐打
+  const assistPct = h.assisted && m.kind === 'special' ? ASSIST_PCT : 100;
+  const rushExtra = a.rushBonus && !h.fromProjectile && m.kind === 'normal' ? RUSH_BONUS : 0;
+
+  // 霸體（鬥氣衝擊）：硬吃攻擊不被打斷，只扣血；鬥氣衝擊、必殺技打得穿
+  const dm = currentMove(d);
+  if (dm?.armor && d.action === 'attack' && d.frame <= dm.startup + dm.active && d.armorUsed < dm.armor
+    && m.kind !== 'impact' && m.kind !== 'super') {
+    d.armorUsed++;
+    const dmgA = Math.max(1, Math.trunc((m.damage * formStats(a).damagePct * scale * defense * assistPct) / 100000000));
+    d.hp = Math.max(0, d.hp - dmgA);
+    s.hitstop = Math.max(s.hitstop, 10);
+    shake(s, 3, 6);
+    s.sparks.push({ ...h.contact, timer: 16, kind: 'armor' });
+    s.events.push('armor');
+    gainMeter(a, Math.trunc((m.meterGain ?? m.damage) / 2));
+    return 'armor';
   }
 
   if (blocked) {
-    const extra = d.burnout ? BURNOUT_BLOCKSTUN : 0;
+    const extra = (d.burnout ? BURNOUT_BLOCKSTUN : 0) + rushExtra;
+    // 燃盡時在牆邊擋鬥氣衝擊 = 暈眩
+    if (m.kind === 'impact' && d.burnout && nearWall(d, pushDir)) {
+      setCrumple(d, DIZZY_FRAMES, true, pushDir);
+      s.hitstop = Math.max(s.hitstop, 14);
+      shake(s, 7, 14);
+      s.sparks.push({ x: d.x, y: d.y + 200 * FP, timer: DIZZY_FRAMES, kind: 'dizzy' });
+      s.sparks.push({ ...h.contact, timer: 18, kind: 'wall' });
+      s.events.push('wall');
+      s.lastAdv = null;
+      return 'block';
+    }
     if (!inAir) {
       setAction(d, 'blockstun');
       d.frame = 0;
@@ -930,23 +1226,50 @@ function applyHit(s: GameState, h: PendingHit): void {
     gainMeter(d, Math.trunc(m.damage / 4));
     s.hitstop = Math.max(s.hitstop, hitstop);
     s.sparks.push({ ...h.contact, timer: 10, kind: 'block' });
-    return;
+    return 'block';
   }
 
-  const scale = Math.max(50, 100 - 10 * Math.max(0, d.comboHits - 2));
-  const defense = formStats(d).defensePct ?? 100; // 恐龍形態等比較耐打
-  const dmg = Math.max(1, Math.trunc((m.damage * formStats(a).damagePct * scale * defense) / 1000000));
+  // 打康：對手出招到攻擊結束前被打中；確反康：對手收招中（或檔架收招、後撤）被打中
+  let ck: 'counter' | 'punish' | null = null;
+  if (d.action === 'attack') ck = movePhase(d) === 'recovery' ? 'punish' : 'counter';
+  else if (d.action === 'parryEnd' || d.action === 'dashB') ck = 'punish';
+  const counterPct = ck ? COUNTER_PCT : 100;
+  const heavyHit = m.damage >= 70 || m.kind === 'impact';
+  const stunBonus = rushExtra + (ck === 'counter' ? COUNTER_STUN : ck === 'punish' ? PUNISH_STUN : { light: 0, heavy: 0 })[heavyHit ? 'heavy' : 'light'];
+  if (ck) {
+    s.sparks.push({ x: d.x, y: d.y + 250 * FP, timer: 45, kind: ck });
+    s.events.push(ck);
+    if (ck === 'punish') addDrive(s, d, -PUNISH_DRIVE_DMG);
+  }
+  const dmg = Math.max(1, Math.trunc((m.damage * formStats(a).damagePct * scale * defense * assistPct * counterPct) / 10000000000));
   d.hp = Math.max(m.nonLethal ? Math.min(1, d.hp) : 0, d.hp - dmg);
   // 一般攻擊打中回復鬥氣
   if (m.kind === 'normal' && !h.fromProjectile) addDrive(s, a, m.damage < 50 ? HIT_GAIN_LIGHT : HIT_GAIN_HEAVY);
   d.comboHits++;
 
   const count = m.multiHit?.count ?? 1;
-  const isLastHit = h.fromProjectile || a.hitsDone >= count;
+  const isLastHit = h.fromProjectile ? h.finalHit ?? true : a.hitsDone >= count;
   const wasAir = isAirborne(d);
   const knock = (m.knockdown && isLastHit) || d.hp <= 0;
 
-  if (knock || (wasAir && isLastHit)) {
+  if (m.kind === 'impact' && !wasAir && d.hp > 0) {
+    // 鬥氣衝擊打中：牆邊 = 撞牆；打康 = 跪倒；其他 = 打飛
+    s.lastAdv = null;
+    if (nearWall(d, pushDir)) {
+      setCrumple(d, WALL_SPLAT_FRAMES, true, pushDir);
+      s.sparks.push({ x: d.x, y: d.y + 120 * FP, timer: 20, kind: 'wall' });
+      s.events.push('wall');
+      shake(s, 7, 14);
+    } else if (ck) {
+      setCrumple(d, CRUMPLE_FRAMES, false, pushDir);
+    } else {
+      setAction(d, 'airHit');
+      d.airHitKnockdown = true;
+      d.y = 1;
+      d.vx = pushDir * 1100;
+      d.vy = 900;
+    }
+  } else if (knock || (wasAir && isLastHit)) {
     s.lastAdv = null;
     setAction(d, 'airHit');
     d.airHitKnockdown = knock;
@@ -957,28 +1280,40 @@ function applyHit(s: GameState, h: PendingHit): void {
     const wasCrouch = isCrouching(d);
     setAction(d, 'hitstun');
     d.frame = 0;
-    d.stun = m.hitstun;
+    d.stun = m.hitstun + stunBonus;
     d.crouchStun = wasCrouch;
     d.vx = 0;
     if (d.y > 0) d.vy = 0;
     d.slide = m.pushback;
     d.slideDir = pushDir;
-    if (!h.fromProjectile) s.lastAdv = { side: h.attacker, value: m.hitstun - remaining, blocked: false, move: m.name };
+    if (!h.fromProjectile) s.lastAdv = { side: h.attacker, value: m.hitstun + stunBonus - remaining, blocked: false, move: m.name };
   }
   if (atWall && !h.fromProjectile) { a.slide = m.pushback; a.slideDir = (-pushDir) as 1 | -1; }
 
   // 打擊感：重攻擊、擊倒、KO、必殺技時畫面震動
   if (d.hp <= 0) shake(s, 8, 16);
-  else if (knock || m.kind === 'super' || m.damage >= 70) shake(s, m.kind === 'super' ? 5 : 4);
+  else if (knock || m.kind === 'super' || m.damage >= 70 || ck) shake(s, m.kind === 'super' ? 5 : 4);
   s.events.push(m.damage >= 70 || knock ? 'hit_heavy' : 'hit_light');
 
   gainMeter(a, m.meterGain ?? m.damage);
   gainMeter(d, Math.trunc(dmg / 2));
   s.hitstop = Math.max(s.hitstop, hitstop);
   s.sparks.push({ ...h.contact, timer: 12, kind: 'hit' });
+  // 打中的爽感：最後一下打中時停頓久一點、畫面大震動，接著慢動作
+  if (m.slowmo && isLastHit) {
+    s.hitstop = Math.max(s.hitstop, 14);
+    shake(s, 8, 18);
+    s.slowmo = Math.max(s.slowmo ?? 0, m.slowmo);
+  }
+  return 'hit';
 }
 
 // ───────────── 回合流程 ─────────────
+
+/** 被往 pushDir 方向推時，離牆夠不夠近（撞牆用） */
+function nearWall(d: FighterState, pushDir: 1 | -1): boolean {
+  return (pushDir === 1 ? STAGE_RIGHT - d.x : d.x - STAGE_LEFT) <= WALL_SPLAT_DIST;
+}
 
 function updatePhase(s: GameState): void {
   s.phaseTimer++;
@@ -998,13 +1333,14 @@ function updatePhase(s: GameState): void {
     case 'ko': {
       if (s.phaseTimer === KO_POSE_AT) {
         const w = s.roundResult?.winner;
+        const matchOver = a.wins >= WINS_TO_MATCH || b.wins >= WINS_TO_MATCH; // 勝負台詞只在整場打完才講
         for (const i of [0, 1] as const) {
           const f = s.fighters[i];
           const c = getChar(f.charId);
           f.y = 0; f.vx = 0; f.vy = 0;
           f.form = 'normal';
-          if (w === i) { setAction(f, 'win'); f.bubble = { text: c.texts.win, timer: 150 }; }
-          else if (w !== null) { setAction(f, 'lose'); f.bubble = { text: c.texts.lose, timer: 150 }; }
+          if (w === i) { setAction(f, 'win'); if (matchOver) f.bubble = { text: c.texts.win, timer: 150 }; }
+          else if (w !== null) { setAction(f, 'lose'); if (matchOver) f.bubble = { text: c.texts.lose, timer: 150 }; }
         }
       }
       if (s.phaseTimer >= KO_END_AT) {
@@ -1051,5 +1387,6 @@ function nextRound(s: GameState): void {
   s.projectiles = [];
   s.sparks = [];
   s.hitstop = 0;
+  s.slowmo = 0;
   s.roundResult = null;
 }

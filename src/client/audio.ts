@@ -1,10 +1,11 @@
 // 聲音：用 Web Audio 即時合成的音效和背景音樂（不需要音檔）。
 // 瀏覽器規定要使用者先點過畫面才能出聲，所以第一次點擊／按鍵時才建立 AudioContext。
+import { getChar } from '../core/characters';
 import type { GameState } from '../core/types';
 
 export type SfxName =
   | 'hit_light' | 'hit_heavy' | 'block' | 'parry' | 'perfect_parry' | 'throw' | 'throw_tech' | 'throw_land'
-  | 'reversal' | 'burnout' | 'ko' | 'round' | 'fight' | 'super' | 'shot' | 'menu' | 'confirm' | 'hover' | 'whip' | 'heart' | 'mio_select' | 'mio_super' | 'sawa_super'
+  | 'reversal' | 'burnout' | 'counter' | 'punish' | 'od' | 'meow' | 'scratch' | 'armor' | 'impact' | 'wall' | 'rush' | 'ko' | 'round' | 'fight' | 'super' | 'shot' | 'menu' | 'confirm' | 'hover' | 'whip' | 'heart' | 'mio_select' | 'mio_super' | 'sawa_super'
   | 'ann_round1' | 'ann_round2' | 'ann_final' | 'ann_fight' | 'ann_ko' | 'ann_time' | 'ann_win_sawa' | 'ann_win_mio'
   | 'dino_tail' | 'dino_fire' | 'dino_roar'
   | 'swing_lp' | 'swing_hp' | 'swing_lk' | 'swing_hk' | 'land';
@@ -133,6 +134,8 @@ class AudioSystem {
       ann_win_sawa: 'ann_win_sawa.wav', ann_win_mio: 'ann_win_mio.wav',
       // 奶龍：尾巴橫掃的咻聲、龍之吐息的噴火聲
       dino_tail: 'dino_tail.wav', dino_fire: 'dino_fire.wav', dino_roar: 'dino_roar.wav',
+      // Mio 召喚貓咪：喵叫、抓臉
+      meow: 'meow.wav', scratch: 'scratch.wav',
       // 出招揮空聲（輕重拳腳各一種）、落地
       swing_lp: 'swing_lp.wav', swing_hp: 'swing_hp.wav', swing_lk: 'swing_lk.wav', swing_hk: 'swing_hk.wav',
       land: 'land.wav' };
@@ -186,6 +189,13 @@ class AudioSystem {
       case 'throw_land': this.tone('sine', 120, 40, 0.3, 0.6); this.hiss(0.2, 0.6, 300, 0.6); break;
       case 'reversal': this.tone('sawtooth', 200, 800, 0.2, 0.25); this.hiss(0.25, 0.4, 1500, 0.5); break;
       case 'burnout': this.tone('square', 400, 100, 0.5, 0.2); break;
+      case 'od': this.tone('sawtooth', 400, 1600, 0.18, 0.18); this.tone('sine', 1600, 2400, 0.2, 0.15, 0.05); break;
+      case 'counter': this.tone('square', 990, 1320, 0.1, 0.16); this.tone('square', 1320, 1760, 0.12, 0.14, 0.06); break;
+      case 'punish': this.tone('sawtooth', 660, 1320, 0.14, 0.18); this.tone('square', 1760, 1760, 0.16, 0.14, 0.08); break;
+      case 'armor': this.tone('triangle', 300, 220, 0.12, 0.3); this.hiss(0.08, 0.5, 2500, 1); break;
+      case 'impact': this.tone('sawtooth', 90, 300, 0.4, 0.22); this.hiss(0.4, 0.35, 900, 0.5); break;
+      case 'wall': this.tone('sine', 90, 35, 0.45, 0.6); this.hiss(0.3, 0.8, 500, 0.6); break;
+      case 'rush': this.hiss(0.22, 0.45, 1600, 0.8); this.tone('sine', 300, 700, 0.15, 0.12); break;
       case 'ko': this.tone('sawtooth', 220, 30, 0.9, 0.35); this.hiss(0.6, 0.6, 400, 0.4); break;
       case 'round': this.tone('square', 523, 523, 0.12, 0.12); this.tone('square', 659, 659, 0.18, 0.12, 0.12); break;
       case 'fight': [523, 659, 784, 1046].forEach((f, i) => this.tone('square', f, f, 0.12, 0.13, i * 0.07)); break;
@@ -433,7 +443,7 @@ class AudioSystem {
       const key = `${f.action}:${f.moveId}:${f.frame}`;
       if (key === this.lastKey[i]) continue;
       this.lastKey[i] = key;
-      if (f.charId === 'mio' && f.form === 'normal' && f.action === 'attack' && f.moveId === 'sp' && f.frame === 1) this.play('whip');
+      if (f.charId === 'mio' && f.form === 'normal' && f.action === 'attack' && (f.moveId === 'sp' || f.moveId === 'spOD') && f.frame === 1) this.play('whip');
       // 奶龍：出招第一格播（咻聲最響的地方剛好在尾巴打到的時候；噴火聲先吸氣再噴）
       if (f.action === 'attack' && f.frame === 1 && f.moveId === 'dHK') this.play('dino_tail');
       if (f.action === 'attack' && f.frame === 1 && f.moveId === 'dBreath') this.play('dino_fire');
@@ -443,9 +453,19 @@ class AudioSystem {
       if (f.charId === 'sawa' && f.action === 'attack' && f.frame === 1 && f.moveId === 'super') this.play('sawa_super');
       // 一般技：出招第一格播揮空聲（站／蹲／空中、奶龍的拳腳都算；奶龍重腳已經有尾巴聲）
       if (f.action === 'attack' && f.frame === 1 && f.moveId && f.moveId !== 'dHK') {
-        const m = /^[scjd](LP|HP|LK|HK)$/.exec(f.moveId);
+        // 借用拳腳動畫的特殊技（上勾拳、旋踢、滑壘、鬥氣衝擊）也用那個拳腳的揮空聲
+        const mv = getChar(f.charId).moves[f.moveId];
+        const m = /^[scjd](LP|HP|LK|HK)$/.exec(mv?.anim ?? (mv?.kind === 'impact' ? 'sHP' : f.moveId));
         if (m) this.play(SWING[m[1]]);
       }
+      // 舞步旋踢：轉三圈，每一踢前播一次重腳揮空聲
+      if (f.action === 'attack' && (f.moveId === 'rush' || f.moveId === 'rushOD')) {
+        const mv = getChar(f.charId).moves[f.moveId];
+        const hit = mv.multiHit;
+        if (hit && f.frame >= mv.startup - 1 && (f.frame - (mv.startup - 1)) % hit.interval === 0 && (f.frame - (mv.startup - 1)) / hit.interval < hit.count) this.play('swing_hk');
+      }
+      // Mio 召喚貓咪：出招第一格喵一聲
+      if (f.action === 'attack' && f.frame === 1 && (f.moveId === 'cat' || f.moveId === 'catOD')) this.play('meow');
       if (f.frame === 1 && f.action === 'land') this.play('land');
     }
   }

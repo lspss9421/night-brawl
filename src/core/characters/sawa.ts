@@ -3,10 +3,14 @@ import { commonMoves, move, toRecord } from './common';
 
 /** 1 格鬥氣（和 game.ts 的 DRIVE_BAR 相同） */
 const DRIVE_BAR_UNITS = 10000;
+/** 特殊技扣 2 格鬥氣、OD 強化版扣 3 格 */
+const SP_COST = 2 * DRIVE_BAR_UNITS;
+const OD_COST = 3 * DRIVE_BAR_UNITS;
 
 // 佐波 Sawa：速度型。出招快、移動快、距離短、血少。數值見 docs/characters/sawa/sawa.md
-const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', 'sp', 'super'];
-const HEAVY_CANCEL = ['sp', 'super'];
+const SPECIALS = ['sp', 'spOD', 'dp', 'dpOD', 'rush', 'rushOD', 'super'];
+const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', ...SPECIALS];
+const HEAVY_CANCEL = SPECIALS;
 
 export const sawa: CharacterDef = {
   id: 'sawa',
@@ -36,6 +40,11 @@ export const sawa: CharacterDef = {
         cLP: 'cLP', cHP: 'cHP', cLK: 'cLK', cHK: 'cHK',
         jLP: 'jLP', jHP: 'jHP', jLK: 'jLK', jHK: 'jHK', sp: 'sp',
       },
+      cmds: [
+        { motion: '623', btn: 'P', move: 'dp', od: 'dpOD', sp: 'd' },
+        { motion: '236', btn: 'P', move: 'sp', od: 'spOD', sp: 'n' },
+        { motion: '214', btn: 'K', move: 'rush', od: 'rushOD', sp: 'f' },
+      ],
     },
   },
   super: 'super',
@@ -56,10 +65,44 @@ export const sawa: CharacterDef = {
       move({ id: 'jLK', name: '空中輕腳', stance: 'air', guard: 'high', startup: 4, active: 6, recovery: 5, damage: 35, hitstun: 16, blockstun: 11, hitstop: 6, hitbox: { x: 10, y: 40, w: 55, h: 40 } }),
       move({ id: 'jHK', name: '空中重腳', stance: 'air', guard: 'high', startup: 9, active: 5, recovery: 14, damage: 75, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 5, y: 10, w: 100, h: 45 } }),
       move({
-        id: 'sp', name: '愛心波動', kind: 'special', startup: 13, active: 1, recovery: 26,
+        id: 'sp', name: '愛心波動', kind: 'special', driveCost: SP_COST, startup: 13, active: 1, recovery: 26,
+        // ↓↘→ + 拳
         damage: 60, hitstun: 18, blockstun: 12, hitstop: 8, pushback: 600,
-        driveCost: 2 * DRIVE_BAR_UNITS, // 用一次扣 2 格鬥氣
         projectile: { spawnFrame: 13, speed: 800, box: { x: -24, y: -24, w: 48, h: 48 }, spawnX: 60, spawnY: 125 },
+      }),
+      move({
+        // OD：兩個拳一起按，扣 3 格鬥氣。比較快、飛得快、傷害高
+        id: 'spOD', name: '愛心波動 OD', kind: 'special', od: true, anim: 'sp', startup: 11, active: 1, recovery: 24,
+        damage: 90, hitstun: 22, blockstun: 14, hitstop: 9, pushback: 700, driveCost: OD_COST,
+        projectile: { spawnFrame: 11, speed: 1300, box: { x: -28, y: -28, w: 56, h: 56 }, spawnX: 60, spawnY: 125 },
+      }),
+      move({
+        // →↓↘ + 拳：往上打的對空技（打中把對手打飛）；同一隻手蓄力再往上揮，拳頭旁冒愛心。打中時畫面慢動作
+        id: 'dp', name: '星光上勾拳', kind: 'special', driveCost: SP_COST, startup: 7, active: 6, recovery: 38,
+        damage: 90, hitstun: 20, blockstun: 12, hitstop: 9, pushback: 500, knockdown: true, launch: { vx: 300, vy: 1900 }, invuln: 4,
+        hitbox: { x: 45, y: 90, w: 75, h: 180 }, slowmo: 30,
+      }),
+      move({
+        // OD：出招到攻擊結束全程無敵，可以用來起身反擊
+        id: 'dpOD', name: '星光上勾拳 OD', kind: 'special', od: true, anim: 'dp', startup: 7, active: 8, recovery: 36,
+        damage: 65, hitstun: 20, blockstun: 12, hitstop: 8, pushback: 500, knockdown: true, launch: { vx: 300, vy: 2100 }, invuln: 13,
+        multiHit: { count: 2, interval: 4 }, driveCost: OD_COST,
+        hitbox: { x: 45, y: 90, w: 80, h: 190 }, slowmo: 30,
+      }),
+      move({
+        // ↓↙← + 腳：像芭蕾舞一樣踮腳旋轉三圈、腿伸直掃出去，每圈踢一下（三段），被防 -4。
+        // 動畫：踮腳準備 →（腿朝對手時踢中：第 16、28、40 格）→ 腿放下，共 61 格
+        id: 'rush', name: '舞步旋踢', kind: 'special', driveCost: SP_COST, startup: 15, active: 27, recovery: 19,
+        damage: 30, hitstun: 18, blockstun: 14, hitstop: 7, pushback: 250, advance: 350,
+        multiHit: { count: 3, interval: 12 },
+        hitbox: { x: 15, y: 70, w: 100, h: 50 },
+      }),
+      move({
+        // OD：一樣三圈，傷害高、最後一下踢倒
+        id: 'rushOD', name: '舞步旋踢 OD', kind: 'special', od: true, anim: 'rush', startup: 15, active: 27, recovery: 19,
+        damage: 40, hitstun: 20, blockstun: 14, hitstop: 8, pushback: 250, advance: 450, knockdown: true,
+        multiHit: { count: 3, interval: 12 }, driveCost: OD_COST,
+        hitbox: { x: 15, y: 70, w: 105, h: 50 },
       }),
       move({
         // 聚光燈打在 Sawa 身上 → 拿起麥克風開唱（發生 30 格是燈光亮起的時間）

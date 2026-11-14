@@ -275,7 +275,20 @@ export class Renderer {
     const pick = set ? pickAnim(s, f, set.data.animations) : null;
     let w = st.hurtStand.w;
     if (set && pick) {
-      this.drawSprite(set, frameAt(pick.anim, pick.t, pick.loop), cx, baseY, f.facing, flash ? 0.55 : 1, f.burnout);
+      const fr = frameAt(pick.anim, pick.t, pick.loop);
+      // 鬥氣衝刺：身後拉出綠色殘影；鬥氣衝擊出招中、衝刺中出的招：身體帶綠光
+      const rushing = f.action === 'driveRush';
+      const green = rushing || f.rushBonus && f.action === 'attack' || (m?.kind === 'impact' && f.action === 'attack' && f.frame <= m.startup + m.active && !set.data.animations.impact) // 有鬥氣衝擊動畫時，綠光已經畫在圖裡;
+      if (rushing) {
+        for (let k = 3; k >= 1; k--) {
+          this.drawSprite(set, fr, cx - f.facing * k * 34, baseY, f.facing, 0.42 - k * 0.1, 'sepia(1) hue-rotate(60deg) saturate(6) brightness(1.1)');
+        }
+      }
+      const odGlow = f.action === 'attack' && !!m?.od;
+      const filter = f.burnout ? 'brightness(0.65) saturate(0.4)'
+        : odGlow ? 'drop-shadow(0 0 12px rgba(255,170,40,1)) drop-shadow(0 0 4px rgba(255,230,120,1))'
+        : green ? 'drop-shadow(0 0 10px rgba(80,255,140,0.95)) drop-shadow(0 0 4px rgba(80,255,140,0.95))' : undefined;
+      this.drawSprite(set, fr, cx, baseY, f.facing, flash ? 0.55 : 1, filter);
     } else {
     let h = st.hurtStand.h;
     if (f.action === 'crouch' || (m?.stance === 'crouch') || ((f.action === 'hitstun' || f.action === 'blockstun') && f.crouchStun)) h = st.hurtCrouch.h;
@@ -382,12 +395,12 @@ export class Renderer {
     }
   }
 
-  private drawSprite(set: SpriteSet, fr: SpriteFrame, x: number, y: number, facing: 1 | -1, alpha: number, dim = false): void {
+  private drawSprite(set: SpriteSet, fr: SpriteFrame, x: number, y: number, facing: 1 | -1, alpha: number, filter?: string): void {
     const g = this.ctx;
     const sc = set.data.scale;
     g.save();
     g.globalAlpha = alpha;
-    if (dim) g.filter = 'brightness(0.65) saturate(0.4)'; // 燃盡：角色變暗
+    if (filter) g.filter = filter; // 燃盡變暗、鬥氣綠光等
     g.imageSmoothingEnabled = false;
     g.translate(Math.round(x), Math.round(y));
     g.scale(facing, 1);
@@ -397,12 +410,62 @@ export class Renderer {
 
   private drawProjectile(s: GameState, p: GameState['projectiles'][number]): void {
     const set = sprites.get(s.fighters[p.owner].charId);
-    const anim = set?.data.animations[`${p.moveId}_projectile`];
+    const m = getChar(s.fighters[p.owner].charId).moves[p.moveId];
+    // 召喚物（貓咪）：飛的時候用 <招式>_projectile、黏在臉上抓的時候用 <招式>_latch（OD 版共用一般版的圖）
+    const base = p.moveId.replace(/OD$/, '');
+    const anims = set?.data.animations;
+    const waiting = !!p.wait && p.wait > 0;
+    const anim = (p.latch ? anims?.[`${base}_latch`] : waiting ? anims?.[`${base}_sit`] : undefined)
+      ?? anims?.[`${p.moveId}_projectile`] ?? anims?.[`${base}_projectile`] ?? (m?.anim ? anims?.[`${m.anim}_projectile`] : undefined);
+    const owner = s.fighters[p.owner];
+    const facing: 1 | -1 = p.latch ? (s.fighters[1 - p.owner].x >= owner.x ? 1 : -1) : p.vx >= 0 ? 1 : -1;
     if (set && anim?.frames.length) {
-      this.drawSprite(set, frameAt(anim, s.frame, true), this.sx(p.x), this.sy(p.y), p.vx >= 0 ? 1 : -1, 1);
+      this.drawSprite(set, frameAt(anim, s.frame, true), this.sx(p.x), this.sy(p.y), facing, 1);
+    } else if (m?.latch) {
+      this.drawCatPlaceholder(this.sx(p.x), this.sy(p.y), facing, !!p.latch, s.frame, waiting);
     } else {
       this.drawHeart(projBox(s, p));
     }
+  }
+
+  /** 貓咪還沒有動畫時的暫代圖：灰白貓臉＋耳朵；抓臉時左右抖、冒抓痕 */
+  private drawCatPlaceholder(x: number, y: number, facing: 1 | -1, latched: boolean, frame: number, waiting = false): void {
+    const g = this.ctx;
+    const shake = latched ? (frame % 4 < 2 ? -4 : 4) : 0;
+    g.save();
+    g.translate(x + shake, y);
+    g.scale(facing, 1);
+    if (!latched && !waiting) {
+      // 身體往後拉長（飛撲）
+      g.fillStyle = '#ffffff';
+      g.strokeStyle = '#222';
+      g.lineWidth = 3;
+      g.beginPath(); g.ellipse(-30, 6, 30, 14, 0, 0, Math.PI * 2); g.fill(); g.stroke();
+      g.fillStyle = '#6b6b6b';
+      g.beginPath(); g.ellipse(-62, 0, 16, 5, -0.3, 0, Math.PI * 2); g.fill(); g.stroke();
+    }
+    g.fillStyle = '#6b6b6b';
+    g.strokeStyle = '#222';
+    g.lineWidth = 3;
+    g.beginPath(); g.moveTo(-18, -12); g.lineTo(-12, -34); g.lineTo(-2, -16); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.moveTo(18, -12); g.lineTo(12, -34); g.lineTo(2, -16); g.closePath(); g.fill(); g.stroke();
+    g.beginPath(); g.arc(0, 0, 22, 0, Math.PI * 2); g.fill(); g.stroke();
+    g.fillStyle = '#ffffff';
+    g.beginPath(); g.ellipse(0, 9, 14, 11, 0, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#c8d64a';
+    g.beginPath(); g.arc(-8, -4, 4, 0, Math.PI * 2); g.arc(8, -4, 4, 0, Math.PI * 2); g.fill();
+    g.fillStyle = '#ff8fa3';
+    g.beginPath(); g.arc(0, 5, 3, 0, Math.PI * 2); g.fill();
+    if (latched) {
+      // 抓痕
+      g.strokeStyle = 'rgba(255,255,255,0.9)';
+      g.lineWidth = 3;
+      const k = frame % 12 < 6 ? 0 : 1;
+      for (let i = 0; i < 3; i++) {
+        g.beginPath(); g.moveTo(20 + i * 7 + k * 4, -24); g.lineTo(30 + i * 7 + k * 4, 6); g.stroke();
+      }
+    }
+    g.restore();
   }
 
   private drawBoxes(s: GameState, f: FighterState): void {
@@ -546,6 +609,92 @@ export class Renderer {
         g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
       }
       g.stroke();
+      return;
+    }
+    if (kind === 'counter' || kind === 'punish') {
+      // 打康／確反康：對手頭上跳出字
+      const life = 45;
+      const k = (life - timer) / life;
+      const big = kind === 'punish';
+      g.save();
+      g.globalAlpha = Math.min(1, timer / 12);
+      g.font = `italic 900 ${big ? 34 : 38}px ${FONT}`;
+      g.textAlign = 'center';
+      g.lineWidth = 6;
+      g.strokeStyle = '#000';
+      g.fillStyle = big ? '#ff5252' : '#ffd740';
+      const t = big ? 'PUNISH COUNTER' : 'COUNTER';
+      const ty = cy - k * 30;
+      g.strokeText(t, cx, ty);
+      g.fillText(t, cx, ty);
+      g.restore();
+      return;
+    }
+    if (kind === 'od') {
+      // OD 強化版：金橘色光環 + 「OD」字
+      const life = 20;
+      g.strokeStyle = `rgba(255,170,40,${timer / life})`;
+      g.lineWidth = 6;
+      g.beginPath();
+      g.arc(cx, cy, (life - timer) * 6 + 40, 0, Math.PI * 2);
+      g.stroke();
+      g.save();
+      g.globalAlpha = Math.min(1, timer / 8);
+      g.font = `italic 900 40px ${FONT}`;
+      g.textAlign = 'center';
+      g.lineWidth = 6;
+      g.strokeStyle = '#000';
+      g.fillStyle = '#ffb300';
+      g.strokeText('OD', cx, cy - 150 - (life - timer));
+      g.fillText('OD', cx, cy - 150 - (life - timer));
+      g.restore();
+      return;
+    }
+    if (kind === 'armor') {
+      // 霸體吃下攻擊：白色衝擊波
+      g.strokeStyle = `rgba(255,255,255,${timer / 16})`;
+      g.lineWidth = 7;
+      g.beginPath();
+      g.arc(cx, cy, (16 - timer) * 5 + 18, 0, Math.PI * 2);
+      g.stroke();
+      return;
+    }
+    if (kind === 'impact' || kind === 'rush') {
+      // 鬥氣衝擊起手：綠色漩渦；鬥氣衝刺：腳下綠色煙
+      const life = kind === 'impact' ? 24 : 16;
+      g.strokeStyle = `rgba(80,255,140,${timer / life})`;
+      g.lineWidth = kind === 'impact' ? 6 : 4;
+      const r = (life - timer) * (kind === 'impact' ? 5 : 4) + 30;
+      g.beginPath();
+      if (kind === 'impact') g.arc(cx, cy, r, 0, Math.PI * 2);
+      else g.ellipse(cx, cy, r * 1.4, r * 0.4, 0, 0, Math.PI * 2);
+      g.stroke();
+      return;
+    }
+    if (kind === 'wall') {
+      // 撞牆：裂痕
+      g.strokeStyle = `rgba(255,255,255,${Math.min(1, timer / 10)})`;
+      g.lineWidth = 5;
+      g.beginPath();
+      for (let k = 0; k < 7; k++) {
+        const a = (k / 7) * Math.PI * 2 + 0.3;
+        const r = 70 + (k % 3) * 25;
+        g.moveTo(cx, cy);
+        g.lineTo(cx + Math.cos(a) * r * 0.5, cy + Math.sin(a) * r * 0.5 + 8);
+        g.lineTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r);
+      }
+      g.stroke();
+      return;
+    }
+    if (kind === 'dizzy') {
+      // 暈眩：頭上轉圈的星星
+      g.fillStyle = '#ffeb3b';
+      g.font = `28px ${FONT}`;
+      g.textAlign = 'center';
+      for (let k = 0; k < 3; k++) {
+        const a = timer / 8 + (k / 3) * Math.PI * 2;
+        g.fillText('★', cx + Math.cos(a) * 45, cy + Math.sin(a) * 12);
+      }
       return;
     }
     if (kind === 'tech') {

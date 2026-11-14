@@ -21,6 +21,14 @@ function run(s: GameState, frames: number, i1 = 0, i2 = 0): void {
   for (let k = 0; k < frames; k++) step(s, [i1, i2]);
 }
 
+/** P1（面向右）搓招再按鍵：方向用數字鍵盤表示（2 = 下、3 = 右下、6 = 右…） */
+const DIR: Record<number, number> = { 1: DOWN | LEFT, 2: DOWN, 3: DOWN | RIGHT, 4: LEFT, 5: 0, 6: RIGHT };
+function motion(s: GameState, dirs: number[], btn: number): void {
+  for (const d of dirs) step(s, [DIR[d], 0]);
+  step(s, [DIR[dirs[dirs.length - 1]] | btn, 0]);
+  step(s, [0, 0]);
+}
+
 /** 按一下（按住 1 格後放開）。 */
 function tap(s: GameState, bits: number, i2 = 0, hold = 0): void {
   step(s, [bits, i2]);
@@ -241,27 +249,54 @@ describe('基本攻防', () => {
 });
 
 describe('鬥氣（Drive）', () => {
-  it('開局鬥氣全滿；Sawa 愛心波動、Mio 鞭擊各扣 2 格', () => {
+  it('開局鬥氣全滿；特殊技扣 2 格，OD 版扣 3 格', () => {
     for (const ch of ['sawa', 'mio']) {
       const s = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
       expect(s.fighters[0].drive).toBe(DRIVE_MAX);
       tap(s, SP);
       expect(s.fighters[0].moveId, ch).toBe('sp');
-      const d = s.fighters[0].drive;
-      expect(d, ch).toBeLessThan(DRIVE_MAX - 2 * DRIVE_BAR + 200);
-      expect(d, ch).toBeGreaterThan(DRIVE_MAX - 2 * DRIVE_BAR - 200);
+      expect(s.fighters[0].drive, ch).toBeLessThan(DRIVE_MAX - 2 * DRIVE_BAR + 200);
+      expect(s.fighters[0].drive, ch).toBeGreaterThan(DRIVE_MAX - 2 * DRIVE_BAR - 200);
+      const t = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
+      motion(t, [2, 3, 6], LP | HP);
+      expect(t.fighters[0].moveId, ch).toBe('spOD');
+      expect(t.fighters[0].drive, ch).toBeLessThan(DRIVE_MAX - 3 * DRIVE_BAR + 200);
+      expect(t.fighters[0].drive, ch).toBeGreaterThan(DRIVE_MAX - 3 * DRIVE_BAR - 200);
     }
   });
 
-  it('鬥氣不到 2 格時放不出特殊技', () => {
+  it('鬥氣不到 3 格時 OD 會變成一般版；不到 2 格放不出特殊技', () => {
     for (const ch of ['sawa', 'mio']) {
       const s = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
-      s.fighters[0].drive = DRIVE_BAR * 1.5; // 1.5 格（按鍵緩衝 5 格內回不到 2 格）
-      tap(s, SP);
-      run(s, 20);
-      expect(s.fighters[0].moveId, ch).not.toBe('sp');
-      expect(s.projectiles.length).toBe(0);
+      s.fighters[0].drive = DRIVE_BAR * 2.5;
+      motion(s, [2, 3, 6], LP | HP);
+      expect(s.fighters[0].moveId, ch).toBe('sp');
+      const t = ready(ch, ch === 'sawa' ? 'mio' : 'sawa', 300, 900);
+      t.fighters[0].drive = DRIVE_BAR * 1.5;
+      tap(t, SP);
+      run(t, 20);
+      expect(t.fighters[0].moveId, ch).not.toBe('sp');
+      expect(t.projectiles.length).toBe(0);
     }
+  });
+
+  it('兩個拳差 1～2 格才按到，也會變成 OD（只扣 OD 的 3 格）', () => {
+    for (const gap of [1, 2]) {
+      const s = ready('sawa', 'mio', 300, 900);
+      motion(s, [2, 3, 6], LP);
+      expect(s.fighters[0].moveId).toBe('sp');
+      run(s, gap - 1, RIGHT | LP);
+      step(s, [RIGHT | LP | HP, 0]);
+      expect(s.fighters[0].moveId, `gap ${gap}`).toBe('spOD');
+      expect(s.fighters[0].drive).toBeLessThan(DRIVE_MAX - 3 * DRIVE_BAR + 300);
+      expect(s.fighters[0].drive).toBeGreaterThan(DRIVE_MAX - 3 * DRIVE_BAR - 300);
+    }
+  });
+
+  it('特殊鍵 + 重拳 = 簡易操作的 OD', () => {
+    const s = ready('sawa', 'mio', 300, 900);
+    step(s, [SP | HP, 0]);
+    expect(s.fighters[0].moveId).toBe('spOD');
   });
 
   it('一般攻擊打中回復鬥氣', () => {
@@ -362,7 +397,7 @@ describe('Sawa', () => {
     run(s, 15);
     expect(s.projectiles.length).toBe(1);
     run(s, 120);
-    expect(s.fighters[1].hp).toBe(1000 - 60);
+    expect(s.fighters[1].hp).toBe(1000 - 48); // 簡易操作（特殊鍵）傷害 8 成
     expect(s.projectiles.length).toBe(0);
   });
 
@@ -409,7 +444,7 @@ describe('Mio', () => {
     expect(s1.fighters[1].hp).toBe(900);
 
     const s2 = ready('mio', 'sawa', 400, 400 + gap);
-    tap(s2, SP);
+    motion(s2, [2, 3, 6], LP);
     run(s2, 40);
     expect(s2.fighters[1].hp).toBe(900 - 90);
   });
@@ -594,5 +629,220 @@ describe('測試選項', () => {
     run(s, 2);
     expect(s.fighters[0].moveId).toBe('super');
     expect(s.fighters[0].meter).toBe(METER_MAX);
+  });
+});
+
+describe('指令技', () => {
+  it('Sawa：↓↘→ 拳 = 愛心波動、→↓↘ 拳 = 上勾拳、↓↙← 腳 = 旋踢', () => {
+    const cases: [number[], number, string][] = [[[2, 3, 6], LP, 'sp'], [[6, 2, 3], HP, 'dp'], [[2, 1, 4], LK, 'rush'], [[6, 2, 3], LP | HP, 'dpOD']];
+    for (const [dirs, btn, id] of cases) {
+      const s = ready('sawa', 'mio', 300, 900);
+      motion(s, dirs, btn);
+      expect(s.fighters[0].moveId, id).toBe(id);
+      expect(s.fighters[0].assisted, id).toBe(false);
+    }
+  });
+
+  it('搓招打中是全傷害；特殊鍵簡易操作是 8 成', () => {
+    const a = ready('sawa', 'mio', 300, 900);
+    motion(a, [2, 3, 6], LP);
+    run(a, 120);
+    expect(a.fighters[1].hp).toBe(1000 - 60);
+  });
+
+  it('特殊鍵 + 方向：下 = 對空技、前 = 突進技', () => {
+    for (const [ch, fwd] of [['sawa', 'rush'], ['mio', 'cat']] as const) {
+      const s = ready(ch, 'sawa', 300, 900);
+      step(s, [DOWN | SP, 0]);
+      expect(s.fighters[0].moveId, ch).toBe('dp');
+      const t = ready(ch, 'sawa', 300, 900);
+      step(t, [RIGHT | SP, 0]);
+      expect(t.fighters[0].moveId, ch).toBe(fwd);
+    }
+  });
+
+  it('輕腳打中可以取消成指令技', () => {
+    const s = ready('sawa', 'mio', 600, 690);
+    step(s, [DOWN | LK, 0]);
+    let k = 0;
+    while ((s.fighters[0].hitsDone === 0 || s.hitstop > 0) && k++ < 30) step(s, [DOWN, 0]);
+    motion(s, [3, 6], LP); // ↓ 已經按著：再 ↘→ + 拳
+    expect(s.fighters[0].moveId).toBe('sp');
+  });
+});
+
+describe('打康／確反康', () => {
+  it('對手出招中被打中 = 打康：傷害 1.2 倍', () => {
+    const s = ready('sawa', 'mio', 600, 690);
+    step(s, [0, HK]); // Mio 站重腳（發生比較慢）
+    step(s, [LP, 0]); // Sawa 輕拳先打到
+    run(s, 10);
+    expect(s.fighters[1].hp).toBe(1000 - 30);
+    expect(s.sparks.some((sp) => sp.kind === 'counter') || s.fighters[1].action === 'hitstun').toBe(true);
+  });
+
+  it('對手收招中被打中 = 確反康：傷害 1.2 倍、對手鬥氣扣半格', () => {
+    const s = ready('sawa', 'mio', 600, 690);
+    step(s, [0, Btn.TAUNT]); // 挑釁整段都是收招
+    run(s, 3);
+    const drive = s.fighters[1].drive;
+    step(s, [LP, 0]);
+    run(s, 6);
+    expect(s.fighters[1].hp).toBe(1000 - 30);
+    expect(s.fighters[1].drive).toBeLessThan(drive - DRIVE_BAR / 2 + 200);
+  });
+});
+
+describe('鬥氣衝刺', () => {
+  it('普通技打中後按鬥氣 = 衝刺取消（扣 3 格），衝刺中可以出招', () => {
+    const s = ready('sawa', 'mio', 500, 590);
+    step(s, [DOWN | LK, 0]);
+    let k = 0;
+    while ((s.fighters[0].hitsDone === 0 || s.hitstop > 0) && k++ < 30) step(s, [DOWN, 0]);
+    step(s, [DRIVE, 0]);
+    expect(s.fighters[0].action).toBe('driveRush');
+    expect(s.fighters[0].drive).toBeLessThan(DRIVE_MAX - 3 * DRIVE_BAR + 1000);
+    const x0 = s.fighters[0].x;
+    run(s, 8);
+    expect(s.fighters[0].x).toBeGreaterThan(x0 + 50 * FP);
+    step(s, [HP, 0]);
+    expect(s.fighters[0].moveId).toBe('sHP');
+    expect(s.fighters[0].rushBonus).toBe(true);
+  });
+
+  it('檔架中連按兩下前 = 衝刺（扣 1 格）', () => {
+    const s = ready('sawa', 'mio', 300, 900);
+    step(s, [DRIVE, 0]);
+    run(s, 3, DRIVE);
+    expect(s.fighters[0].action).toBe('parry');
+    step(s, [DRIVE | RIGHT, 0]);
+    step(s, [DRIVE, 0]);
+    step(s, [DRIVE | RIGHT, 0]);
+    expect(s.fighters[0].action).toBe('driveRush');
+  });
+});
+
+describe('鬥氣衝擊', () => {
+  it('前 + 鬥氣 = 鬥氣衝擊；有霸體，可以硬吃對手的輕拳', () => {
+    const s = ready('sawa', 'mio', 600, 680);
+    step(s, [RIGHT | DRIVE, 0]);
+    expect(s.fighters[0].moveId).toBe('impact');
+    run(s, 4);
+    step(s, [0, LP]);
+    run(s, 8);
+    expect(s.fighters[0].moveId).toBe('impact');
+    expect(s.fighters[0].armorUsed).toBe(1);
+    run(s, 25);
+    expect(s.fighters[1].hp).toBeLessThan(1000 - 50);
+  });
+
+  it('對手在牆邊被打中 = 撞牆（可以追打）', () => {
+    const s = ready('sawa', 'mio', 1000, 1090);
+    step(s, [RIGHT | DRIVE, 0]);
+    run(s, 30);
+    expect(s.fighters[1].action).toBe('crumple');
+    expect(s.fighters[1].wallSplat).toBe(true);
+  });
+
+  it('燃盡的對手在牆邊防禦 = 暈眩', () => {
+    const s = ready('sawa', 'mio', 1110, 1200);
+    s.fighters[1].drive = 0;
+    s.fighters[1].burnout = true;
+    step(s, [RIGHT | DRIVE, RIGHT]);
+    run(s, 30, 0, RIGHT);
+    expect(s.fighters[1].action).toBe('crumple');
+  });
+});
+
+describe('上勾拳打中的慢動作', () => {
+  it('Sawa 上勾拳打中：大停頓後進入慢動作（1/3 速度）', () => {
+    const s = ready('sawa', 'mio', 600, 690);
+    motion(s, [6, 2, 3], HP);
+    expect(s.fighters[0].moveId).toBe('dp');
+    let maxSlow = 0;
+    for (let k = 0; k < 40; k++) { step(s, [0, 0]); maxSlow = Math.max(maxSlow, s.slowmo ?? 0); }
+    expect(s.fighters[1].hp).toBeLessThan(1000);
+    expect(maxSlow).toBeGreaterThan(20);
+    expect(maxSlow).toBeLessThanOrEqual(30); // 約 0.5 秒
+  });
+});
+
+describe('舞步旋踢', () => {
+  it('轉三圈、三段傷害', () => {
+    const s = ready('sawa', 'mio', 500, 600);
+    motion(s, [2, 1, 4], LK);
+    expect(s.fighters[0].moveId).toBe('rush');
+    let hits = 0, last = 1000;
+    for (let k = 0; k < 90; k++) {
+      step(s, [0, 0]);
+      if (s.fighters[1].hp < last) { hits++; last = s.fighters[1].hp; }
+    }
+    expect(hits).toBe(3);
+  });
+});
+
+describe('Mio 貓咪突擊', () => {
+  it('貓咪撲中：黏在臉上抓三下，抓完消失', () => {
+    const s = ready('mio', 'sawa', 400, 650);
+    motion(s, [2, 1, 4], LK);
+    expect(s.fighters[0].moveId).toBe('cat');
+    let hits = 0, last = s.fighters[1].hp, latched = false;
+    for (let k = 0; k < 120; k++) {
+      step(s, [0, 0]);
+      if (s.fighters[1].hp < last) { hits++; last = s.fighters[1].hp; }
+      if (s.projectiles.some((p) => p.latch)) latched = true;
+    }
+    expect(latched).toBe(true);
+    expect(hits).toBe(3);
+    expect(s.projectiles.length).toBe(0);
+  });
+
+  it('貓咪先出現在 Mio 腳邊等著，Mio 指向對手時才飛出去', () => {
+    const s = ready('mio', 'sawa', 400, 900);
+    motion(s, [2, 1, 4], LK);
+    let k = 0;
+    while (!s.projectiles.length && k++ < 20) step(s, [0, 0]);
+    const p = s.projectiles[0];
+    expect(p.wait).toBeGreaterThan(0);
+    const x0 = p.x;
+    expect(p.y).toBeLessThan(40 * FP); // 在腳邊
+    run(s, 3);
+    expect(s.projectiles[0].x).toBe(x0); // 等待中不動
+    run(s, 15);
+    expect(s.projectiles[0].x).toBeGreaterThan(x0); // 飛出去了
+    expect(s.projectiles[0].y).toBeGreaterThan(80 * FP); // 往臉的高度飛
+  });
+
+  it('Mio 召喚時被打斷：貓咪消失', () => {
+    const s = ready('mio', 'sawa', 400, 490);
+    motion(s, [2, 1, 4], LK);
+    let k = 0;
+    while (!s.projectiles.length && k++ < 20) step(s, [0, 0]);
+    expect(s.projectiles.length).toBe(1);
+    step(s, [0, LP]); // Sawa 輕拳打斷
+    run(s, 20);
+    expect(s.fighters[0].action).not.toBe('attack');
+    expect(s.projectiles.length).toBe(0);
+  });
+
+  it('被防住：不會黏上去，直接消失', () => {
+    const s = ready('mio', 'sawa', 400, 650);
+    motion(s, [2, 1, 4], LK);
+    let hits = 0;
+    const hp = s.fighters[1].hp;
+    for (let k = 0; k < 120; k++) { step(s, [0, RIGHT]); if (s.projectiles.some((p) => p.latch)) hits++; }
+    expect(hits).toBe(0);
+    expect(s.fighters[1].hp).toBe(hp);
+    expect(s.projectiles.length).toBe(0);
+  });
+
+  it('沒撲到（太遠）：飛一段後消失', () => {
+    const s = ready('mio', 'sawa', 100, 1200);
+    motion(s, [2, 1, 4], LK);
+    run(s, 20);
+    expect(s.projectiles.length).toBe(1);
+    run(s, 60);
+    expect(s.projectiles.length).toBe(0);
+    expect(s.fighters[1].hp).toBe(900);
   });
 });

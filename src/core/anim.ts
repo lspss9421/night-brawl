@@ -28,7 +28,7 @@ export function animRef(s: GameState, f: FighterState, lengthOf: (key: string) =
       idle: 'dino_idle', walkF: 'dino_walk', walkB: 'dino_walk', crouch: 'dino_idle', jumpSquat: 'dino_jumpSquat',
       air: 'dino_air', land: 'dino_land', blockstun: 'dino_block', hitstun: 'dino_hit', airHit: 'dino_hit',
       thrown: 'dino_hit', knockdown: 'dino_knockdown', getup: 'dino_getup', win: 'dino_idle', lose: 'dino_knockdown',
-      parry: 'dino_block', parryEnd: 'dino_idle', parried: 'dino_hit',
+      parry: 'dino_block', parryEnd: 'dino_idle', parried: 'dino_hit', driveRush: 'dino_walk', crumple: 'dino_hit',
     };
     const k = map[f.action];
     return k ? { keys: [k], t } : null;
@@ -53,12 +53,19 @@ export function animRef(s: GameState, f: FighterState, lengthOf: (key: string) =
       if (!m) return { keys: ['idle'], t };
       if (m.kind === 'taunt') return { keys: ['taunt', 'idle'], t, loop: false };
       const rest = m.stance === 'crouch' ? 'crouchIdle' : m.stance === 'air' ? 'air' : 'idle';
-      const extra = m.kind === 'reversal' ? ['sHP'] : [];
+      const extra = m.anim ? [m.anim] : m.kind === 'reversal' || m.kind === 'impact' ? ['sHP'] : [];
       return { keys: [m.id, ...extra, rest], t, loop: false };
     }
     case 'blockstun': return { keys: f.crouchStun ? ['blockCrouch', 'blockStand'] : ['blockStand'], t, loop: false };
     case 'parry': return { keys: ['parry', 'blockStand'], t, loop: false };
     case 'parryEnd': return { keys: ['parryEnd', 'idle'], t, loop: false };
+    case 'driveRush': return { keys: ['driveRush', 'dashF', 'walkF', 'idle'], t };
+    case 'crumple': {
+      // 跪倒時間依情況不同（撞牆 50、跪倒 60、暈眩 110 格）：動畫拉長或縮短到剛好播完
+      const len = lengthOf('crumple');
+      const total = Math.max(1, f.frame + f.stun);
+      return { keys: ['crumple', 'hitHeavy', 'hitLight'], t: len ? Math.floor((t * len) / total) : t, loop: false };
+    }
     case 'parried': return { keys: ['hitHeavy', 'hitLight'], t: 0, loop: false };
     case 'hitstun': {
       const heavy = f.stun + f.frame >= 18;
@@ -66,7 +73,10 @@ export function animRef(s: GameState, f: FighterState, lengthOf: (key: string) =
       return { keys, t, loop: false };
     }
     case 'airHit': return { keys: ['airHit', 'hitHeavy'], t, loop: false };
-    case 'knockdown': return { keys: ['knockdown'], t, loop: false };
+    case 'knockdown':
+      // 跪倒後倒下：停在跪倒動畫最後一格（趴在地上），不重播往後摔
+      if (f.afterCrumple) return { keys: ['crumple', 'knockdown'], t: 100000, loop: false };
+      return { keys: ['knockdown'], t, loop: false };
     case 'getup': return { keys: ['getup', 'idle'], t, loop: false };
     case 'throwing': return { keys: ['throwing', 'sHP', 'idle'], t, loop: false };
     case 'thrown': return { keys: ['thrown', 'hitHeavy'], t, loop: false };

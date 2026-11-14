@@ -3,11 +3,15 @@ import { commonMoves, move, toRecord } from './common';
 
 /** 1 格鬥氣（和 game.ts 的 DRIVE_BAR 相同；角色檔不能反過來 import game.ts） */
 const DRIVE_BAR_UNITS = 10000;
+/** 特殊技扣 2 格鬥氣、OD 強化版扣 3 格 */
+const SP_COST = 2 * DRIVE_BAR_UNITS;
+const OD_COST = 3 * DRIVE_BAR_UNITS;
 
 // Mio：一般型，數值都是標準值。特殊技鞭擊距離長；必殺技變身恐龍 10 秒。
 // 數值見 docs/characters/mio/mio.md
-const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', 'sp', 'super'];
-const HEAVY_CANCEL = ['sp', 'super'];
+const SPECIALS = ['sp', 'spOD', 'dp', 'dpOD', 'cat', 'catOD', 'super'];
+const LIGHT_CANCEL = ['sHP', 'sHK', 'cHP', 'cHK', ...SPECIALS];
+const HEAVY_CANCEL = SPECIALS;
 
 export const mio: CharacterDef = {
   id: 'mio',
@@ -37,6 +41,11 @@ export const mio: CharacterDef = {
         cLP: 'cLP', cHP: 'cHP', cLK: 'cLK', cHK: 'cHK',
         jLP: 'jLP', jHP: 'jHP', jLK: 'jLK', jHK: 'jHK', sp: 'sp',
       },
+      cmds: [
+        { motion: '623', btn: 'P', move: 'dp', od: 'dpOD', sp: 'd' },
+        { motion: '236', btn: 'P', move: 'sp', od: 'spOD', sp: 'n' },
+        { motion: '214', btn: 'K', move: 'cat', od: 'catOD', sp: 'f' },
+      ],
     },
     dino: {
       walkFwd: 280,
@@ -77,11 +86,45 @@ export const mio: CharacterDef = {
       move({ id: 'jLK', name: '空中輕腳', stance: 'air', guard: 'high', startup: 5, active: 6, recovery: 5, damage: 40, hitstun: 16, blockstun: 11, hitstop: 6, hitbox: { x: 10, y: 40, w: 60, h: 40 } }),
       move({ id: 'jHK', name: '空中重腳', stance: 'air', guard: 'high', startup: 10, active: 5, recovery: 16, damage: 85, hitstun: 19, blockstun: 13, hitstop: 8, hitbox: { x: 5, y: 10, w: 105, h: 45 } }),
       move({
-        id: 'sp', name: '鞭擊', kind: 'special', startup: 14, active: 4, recovery: 24,
+        id: 'sp', name: '鞭擊', kind: 'special', driveCost: SP_COST, startup: 14, active: 4, recovery: 24,
+        // ↓↘→ + 拳
         damage: 90, hitstun: 22, blockstun: 16, hitstop: 10, pushback: 900,
-        driveCost: 2 * DRIVE_BAR_UNITS, // 用一次扣 2 格鬥氣
         // 鞭尖最遠打到 280 像素，約站重腳（135）的 2 倍
         hitbox: { x: 40, y: 115, w: 240, h: 30 },
+      }),
+      move({
+        // OD：兩個拳一起按，扣 3 格鬥氣。打更遠、打中倒地
+        id: 'spOD', name: '鞭擊 OD', kind: 'special', od: true, anim: 'sp', startup: 12, active: 5, recovery: 22,
+        damage: 120, hitstun: 22, blockstun: 16, hitstop: 11, pushback: 1000, knockdown: true, driveCost: OD_COST,
+        codeHitbox: true, hitbox: { x: 40, y: 110, w: 290, h: 40 },
+      }),
+      move({
+        // →↓↘ + 拳：往上甩鞭的對空技
+        id: 'dp', name: '昇天鞭', kind: 'special', driveCost: SP_COST, anim: 'cHP', startup: 6, active: 6, recovery: 30,
+        damage: 95, hitstun: 20, blockstun: 12, hitstop: 9, pushback: 500, knockdown: true, launch: { vx: 300, vy: 1900 }, invuln: 4,
+        hitbox: { x: 10, y: 100, w: 115, h: 190 },
+      }),
+      move({
+        // OD：出招到攻擊結束全程無敵
+        id: 'dpOD', name: '昇天鞭 OD', kind: 'special', od: true, anim: 'cHP', startup: 6, active: 8, recovery: 32,
+        damage: 70, hitstun: 20, blockstun: 12, hitstop: 8, pushback: 500, knockdown: true, launch: { vx: 300, vy: 2100 }, invuln: 14,
+        multiHit: { count: 2, interval: 4 }, driveCost: OD_COST,
+        hitbox: { x: 10, y: 100, w: 120, h: 200 },
+      }),
+      move({
+        // ↓↙← + 腳：召喚貓咪 → 用手指向對手 → 貓咪飛撲過去，撲到臉上連抓三下後消失；被防或沒撲到就消失
+        id: 'cat', name: '貓咪突擊', kind: 'special', driveCost: SP_COST, startup: 16, active: 1, recovery: 26,
+        damage: 25, hitstun: 20, blockstun: 14, hitstop: 6, pushback: 150,
+        // 第 7 格貓咪出現在腳邊（舉手召喚），第 16 格 Mio 指向對手時飛撲出去
+        projectile: { spawnFrame: 16, speed: 1100, box: { x: -30, y: -25, w: 60, h: 50 }, spawnX: 50, spawnY: 130, life: 36, summon: { frame: 7, x: 75, y: 39 } },
+        latch: { hits: 3, interval: 12 },
+      }),
+      move({
+        // OD：貓咪飛得快、飛得遠，每下抓比較痛，最後一下抓倒
+        id: 'catOD', name: '貓咪突擊 OD', kind: 'special', od: true, driveCost: OD_COST, anim: 'cat', startup: 14, active: 1, recovery: 24,
+        damage: 35, hitstun: 22, blockstun: 16, hitstop: 7, pushback: 150, knockdown: true,
+        projectile: { spawnFrame: 14, speed: 1500, box: { x: -30, y: -25, w: 60, h: 50 }, spawnX: 50, spawnY: 130, life: 40, summon: { frame: 6, x: 75, y: 39 } },
+        latch: { hits: 3, interval: 12 },
       }),
       move({
         // 戴上帽子 → 邪惡力量爆發（64 格後變身）→ 奶龍朝天怒吼 → 備戰；整段無敵

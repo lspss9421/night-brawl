@@ -12,7 +12,7 @@ export interface Box {
 }
 
 export type GuardType = 'mid' | 'low' | 'high';
-export type MoveKind = 'normal' | 'special' | 'super' | 'transform' | 'throw' | 'taunt' | 'reversal';
+export type MoveKind = 'normal' | 'special' | 'super' | 'transform' | 'throw' | 'taunt' | 'reversal' | 'impact';
 
 export interface ProjectileDef {
   spawnFrame: number;
@@ -20,6 +20,10 @@ export interface ProjectileDef {
   box: Box; // 以投射物中心為原點
   spawnX: number; // 相對角色的生成位置（像素）
   spawnY: number;
+  /** 飛多少格後消失（沒設定 = 300） */
+  life?: number;
+  /** 召喚物：第幾格先出現在腳邊等著（到 spawnFrame 才飛出去）；出現的位置（像素，相對角色） */
+  summon?: { frame: number; x: number; y: number };
 }
 
 export interface MoveDef {
@@ -62,6 +66,29 @@ export interface MoveDef {
   nonLethal?: boolean;
   /** 攻擊範圍固定用程式設定的，不套用動畫畫出來的紅框 */
   codeHitbox?: boolean;
+  /** 借用別的招式的動畫（這招還沒有自己的圖時） */
+  anim?: string;
+  /** 霸體：發生到攻擊結束前，可以硬吃幾下攻擊不被打斷（例如鬥氣衝擊） */
+  armor?: number;
+  /** OD（強化版）特殊技 */
+  od?: boolean;
+  /** 召喚物撲到對手身上：打中後黏在對手臉上連抓 hits 下（每 interval 格一下），抓完消失；被防或沒打中就消失 */
+  latch?: { hits: number; interval: number };
+  /** 打中時畫面慢動作幾格（畫面影格數；慢動作期間遊戲 1/3 速度） */
+  slowmo?: number;
+}
+
+/** 指令技：搓招 + 拳／腳 */
+export interface CommandDef {
+  /** 236 = ↓↘→、623 = →↓↘、214 = ↓↙←（以面向為準） */
+  motion: '236' | '623' | '214';
+  /** P = 拳、K = 腳 */
+  btn: 'P' | 'K';
+  move: string;
+  /** 兩個拳（或兩個腳）一起按 = OD 強化版 */
+  od?: string;
+  /** 簡易操作：特殊鍵（n = 單按、f = 前＋特殊、d = 下＋特殊）也能出，但傷害 8 成 */
+  sp?: 'n' | 'f' | 'd';
 }
 
 export interface FormStats {
@@ -86,6 +113,8 @@ export interface FormStats {
     jLP?: string; jHP?: string; jLK?: string; jHK?: string;
     sp?: string;
   };
+  /** 指令技（依序判斷） */
+  cmds?: CommandDef[];
 }
 
 export interface CharacterDef {
@@ -135,7 +164,9 @@ export type Action =
   | 'lose'
   | 'parry'
   | 'parryEnd'
-  | 'parried';
+  | 'parried'
+  | 'driveRush'
+  | 'crumple';
 
 export interface Bubble {
   text: string;
@@ -184,6 +215,18 @@ export interface FighterState {
   landDamage: number;
   /** 後撤結束後的冷卻（影格），歸零前不能再後撤 */
   backdashCd: number;
+  /** 最近的方向變化（數字鍵盤方向、以面向為準，6 = 前）和發生的影格；判斷搓招用 */
+  dirHist: { d: number; f: number }[];
+  /** 這招是從鬥氣衝刺出的（打中／被防多 4 格硬直） */
+  rushBonus: boolean;
+  /** 這招是用簡易操作（特殊鍵）出的（傷害 8 成） */
+  assisted: boolean;
+  /** 這招霸體已經吃了幾下 */
+  armorUsed: number;
+  /** 撞牆／暈眩中：倒下前不會被推離牆邊 */
+  wallSplat: boolean;
+  /** 這次倒地是跪倒後倒下的（倒地動畫沿用跪倒的最後一格，不再重播往後摔） */
+  afterCrumple: boolean;
 }
 
 export interface Projectile {
@@ -193,13 +236,21 @@ export interface Projectile {
   y: number;
   vx: number;
   life: number;
+  /** 用簡易操作放的（傷害 8 成） */
+  assisted?: boolean;
+  /** 黏在對手身上：還要抓幾下、下一下還剩幾格 */
+  latch?: { left: number; timer: number };
+  /** 召喚物在腳邊等待：還要等幾格才飛出去（等待中不會打人） */
+  wait?: number;
+  /** 飛出去後要飛到的高度（centi-px） */
+  targetY?: number;
 }
 
 export interface Spark {
   x: number;
   y: number;
   timer: number;
-  kind: 'hit' | 'block' | 'puff' | 'parry' | 'perfect' | 'reversal' | 'tech' | 'burnout';
+  kind: 'hit' | 'block' | 'puff' | 'parry' | 'perfect' | 'reversal' | 'tech' | 'burnout' | 'counter' | 'punish' | 'armor' | 'impact' | 'wall' | 'rush' | 'dizzy' | 'od';
 }
 
 export type Phase = 'intro' | 'fight' | 'ko' | 'matchEnd';
@@ -218,6 +269,8 @@ export interface GameState {
   projectiles: Projectile[];
   sparks: Spark[];
   hitstop: number;
+  /** 慢動作剩幾格（畫面影格）：這段時間每 3 格才跑 1 格遊戲邏輯 */
+  slowmo?: number;
   superFreeze: { owner: 0 | 1; timer: number } | null;
   roundResult: { winner: 0 | 1 | null; reason: 'ko' | 'time' } | null;
   matchWinner: 0 | 1 | null;

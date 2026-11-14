@@ -25,6 +25,13 @@ export function commonMoves(): Record<string, MoveDef> {
       damage: 50, hitstun: 20, blockstun: 16, hitstop: 8, pushback: 1600, invuln: 23, nonLethal: true,
       hitbox: { x: 0, y: 30, w: 150, h: 150 }, // 防禦後雙方被推開，所以範圍要夠遠
     }),
+    // 鬥氣衝擊：前 + 鬥氣鍵，扣 1 格。出招慢，但發生到攻擊結束前可以硬吃 2 下攻擊；
+    // 打中時對手在牆邊 = 撞牆、打康 = 跪倒，都可以追打；燃盡的對手在牆邊防禦 = 暈眩
+    move({
+      id: 'impact', name: '鬥氣衝擊', kind: 'impact', startup: 26, active: 2, recovery: 35,
+      damage: 80, hitstun: 24, blockstun: 20, hitstop: 8, pushback: 1500, armor: 2, driveCost: 10000,
+      codeHitbox: true, hitbox: { x: 10, y: 60, w: 110, h: 120 },
+    }),
     move({ id: 'taunt', name: '挑釁', kind: 'taunt', startup: 0, active: 0, recovery: 90 }),
   ];
   return Object.fromEntries(list.map((m) => [m.id, m]));
